@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TESR BOM Viewer</title>
+  <meta name="description" content="TESR BOM Viewer — scan LCSC / DigiKey / Mouser bag labels and find where every part goes on your KiCad board. 100% offline in the browser. Made by TESR.">
+  <meta name="theme-color" content="#0B0B0D">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    { "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/addons/controls/OrbitControls.js": "./vendor/three/OrbitControls.js"
+    } }
+  </script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="https://www.tesrshop.com" target="_blank" rel="noopener" title="TESR — Thai Embedded System and Robotics">
+      <img src="assets/tesr_logo.png" alt="TESR logo" width="44" height="44">
+      <span class="brand-txt"><b>TESR</b><small>BOM VIEWER</small></span>
+    </a>
+    <div class="board-info">
+      <div class="board-title" id="boardTitle">—</div>
+      <div class="board-sub" id="boardSub" data-i18n="noBoard">ยังไม่ได้เปิดบอร์ด</div>
+    </div>
+    <div class="progress" title="Placed / total parts">
+      <div class="prog-row"><span data-i18n="placed">วางแล้ว</span><b id="progPlaced">0 / 0</b></div>
+      <div class="bar"><i id="barPlaced"></i></div>
+      <div class="prog-row"><span data-i18n="sourced">หยิบของแล้ว</span><b id="progSourced">0 / 0</b></div>
+      <div class="bar gold"><i id="barSourced"></i></div>
+    </div>
+    <div class="top-actions">
+      <label class="btn" title="Open .kicad_pcb / BOM .csv / CPL .csv">
+        <input type="file" id="fileInput" accept=".kicad_pcb,.csv,.txt,.tsv" multiple hidden>
+        <span data-i18n="open">เปิดไฟล์</span>
+      </label>
+      <button class="btn ghost" id="btnDemo" data-i18n="demo">ตัวอย่าง</button>
+      <button class="btn ghost icon" id="btnMenu" title="Settings">⚙</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- BOM table -->
+    <section class="pane pane-table">
+      <div class="toolbar">
+        <input id="filter" type="search" placeholder="Filter: value / ref / MPN / LCSC" data-i18n-ph="filterPh" autocomplete="off">
+        <select id="sideFilter" title="Side">
+          <option value="">F + B</option><option value="F">Top (F)</option><option value="B">Bottom (B)</option>
+        </select>
+        <button class="btn ghost small" id="btnHidePlaced" data-i18n="hidePlaced" title="Hide finished lines">ซ่อนที่วางครบ</button>
+      </div>
+      <div class="table-wrap">
+        <table id="bomTable">
+          <thead><tr>
+            <th class="c">#</th>
+            <th class="c" data-i18n="thSourced">หยิบ</th>
+            <th class="c" data-i18n="thPlaced">วาง</th>
+            <th data-i18n="thRefs">Refs</th>
+            <th data-i18n="thValue">Value</th>
+            <th>MPN</th>
+            <th>LCSC</th>
+            <th class="c" data-i18n="thQty">Qty</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="empty" id="emptyTable">
+          <img src="assets/tesr_logo.png" alt="" width="84" height="84">
+          <p data-i18n-html="dropHint">ลากไฟล์ <b>.kicad_pcb</b> (และ BOM <b>.csv</b> ถ้ามี) มาวางที่นี่<br>หรือกด <b>ตัวอย่าง</b> เพื่อลองกับบอร์ด TESR Pincer V2</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- board view -->
+    <section class="pane pane-board">
+      <div class="toolbar board-bar">
+        <div class="seg" id="segMode">
+          <button data-mode="2d" class="on">2D</button><button data-mode="3d">3D</button>
+        </div>
+        <div class="seg" id="segSide">
+          <button data-side="F" class="on">F</button><button data-side="FB">FB</button><button data-side="B">B</button>
+        </div>
+        <div class="seg hide" id="seg3d">
+          <button data-v="iso">45°</button><button data-v="top">TOP</button><button data-v="front">FRONT</button><button data-v="bottom">BOT</button>
+        </div>
+        <span class="grow"></span>
+        <button class="btn ghost small" id="btnFit" title="Fit (double-click)">⤢</button>
+      </div>
+      <div class="board-host" id="boardHost">
+        <canvas id="cv2d"></canvas>
+        <div id="host3d" class="hide"></div>
+        <div class="tip" id="tip"></div>
+        <div class="toast" id="toast"></div>
+      </div>
+    </section>
+
+    <!-- scanner + detail -->
+    <aside class="pane pane-side">
+      <div class="card scan-card">
+        <div class="kicker" data-i18n="scanKicker">สแกนถุงอะไหล่ · QR / DataMatrix / Barcode</div>
+        <div class="video-box" id="videoBox">
+          <video id="video" playsinline muted></video>
+          <canvas id="overlay"></canvas>
+          <div class="video-idle" id="videoIdle">
+            <b data-i18n="readyTitle">พร้อมสแกน</b>
+            <span data-i18n="readySub">เปิดกล้อง แล้วส่องฉลากถุง LCSC / DigiKey / Mouser</span>
+          </div>
+        </div>
+        <div class="row">
+          <select id="camSelect" title="Camera"><option value="" data-i18n="defaultCam">กล้องเริ่มต้น</option></select>
+        </div>
+        <div class="row">
+          <button class="btn primary grow" id="btnCam" data-i18n="startCam">เปิดกล้อง</button>
+          <label class="btn ghost" title="Decode a photo of the label">
+            <input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
+            <span data-i18n="photo">รูปภาพ</span>
+          </label>
+        </div>
+        <form class="row" id="codeForm" autocomplete="off">
+          <input id="codeInput" type="text" placeholder="พิมพ์ / ยิงบาร์โค้ด: C8734, MPN, R25…" data-i18n-ph="codePh">
+          <button class="btn" type="submit" data-i18n="find">หา</button>
+        </form>
+        <div class="scan-status" id="scanStatus"></div>
+      </div>
+
+      <div class="card detail" id="detail">
+        <div class="kicker" data-i18n="selection">รายการที่เลือก</div>
+        <div class="detail-empty" data-i18n="selectHint">คลิกแถวในตาราง คลิกชิ้นส่วนบนบอร์ด หรือสแกนฉลาก</div>
+        <div class="detail-body hide">
+          <div class="d-value" id="dValue"></div>
+          <div class="d-fp" id="dFp"></div>
+          <div class="chips" id="dRefs"></div>
+          <dl class="kv" id="dKv"></dl>
+          <div class="row">
+            <button class="btn primary grow" id="btnPlaceAll" data-i18n="placeAll">วางครบทั้งแถว ✓</button>
+            <button class="btn ghost" id="btnNext" title="Next line (↓)" data-i18n="next">ถัดไป ▸</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card log">
+        <div class="kicker" data-i18n="history">ประวัติการสแกน</div>
+        <ul id="scanLog"></ul>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="foot">
+    <span>Made by <a href="https://www.tesrshop.com" target="_blank" rel="noopener"><b>TESR</b></a> · Thai Embedded System and Robotics</span>
+    <span class="sep">|</span>
+    <span data-i18n="offline">ทำงานในเบราว์เซอร์ 100% — ไม่ส่งไฟล์/ภาพขึ้นคลาวด์</span>
+    <span class="grow"></span>
+    <a href="https://github.com/TESR-Channel/PCB_bom_viewer" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+
+  <!-- settings drawer -->
+  <div class="drawer hide" id="drawer">
+    <div class="drawer-card">
+      <div class="kicker" data-i18n="settings">ตั้งค่า</div>
+      <label class="opt"><span data-i18n="lang">ภาษา</span>
+        <select id="optLang"><option value="th">ไทย</option><option value="en">English</option></select></label>
+      <label class="opt"><span data-i18n="maskColor">สี PCB</span>
+        <select id="optMask"><option value="black">Black (TESR)</option><option value="green">Green</option><option value="white">White</option></select></label>
+      <label class="opt chk"><input type="checkbox" id="optAutoSource" checked> <span data-i18n="autoSource">สแกนเจอ → ติ๊ก "หยิบแล้ว" อัตโนมัติ</span></label>
+      <label class="opt chk"><input type="checkbox" id="optBeep" checked> <span data-i18n="beep">เสียงบี๊บเมื่อสแกน</span></label>
+      <label class="opt chk"><input type="checkbox" id="optRefs" checked> <span data-i18n="showRefs">แสดงชื่อ Ref บนบอร์ด 2D</span></label>
+      <label class="opt chk"><input type="checkbox" id="optNonBom"> <span data-i18n="nonBom">แสดงชิ้นที่ไม่อยู่ใน BOM (รูยึด, โลโก้, jumper)</span></label>
+      <div class="row">
+        <button class="btn ghost grow" id="btnExport" data-i18n="export">Export checklist (.csv)</button>
+        <button class="btn ghost grow" id="btnReset" data-i18n="reset">ล้างสถานะบอร์ดนี้</button>
+      </div>
+      <div class="help" data-i18n-html="help">
+        <b>คีย์ลัด</b>: ↑ / ↓ เลือกแถว · Space = วางชิ้นถัดไป · Enter ในช่องค้นหา = หา · / = โฟกัสช่องรหัส<br>
+        <b>รองรับฉลาก</b>: LCSC / JLCPCB (QR), DigiKey / Mouser / Arrow (DataMatrix ECIA), บาร์โค้ด 1P / P, หรือพิมพ์ LCSC / MPN / Ref / Value เอง<br>
+        <b>เครื่องยิงบาร์โค้ด USB</b>: ยิงได้เลยแม้ไม่ได้คลิกช่อง
+      </div>
+      <button class="btn primary" id="btnCloseDrawer" data-i18n="close">ปิด</button>
+    </div>
+  </div>
+
+  <div class="dropzone hide" id="dropzone"><div><b data-i18n="dropTitle">วางไฟล์ที่นี่</b><span>.kicad_pcb · BOM .csv · CPL .csv</span></div></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
