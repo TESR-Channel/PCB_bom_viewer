@@ -1,7 +1,7 @@
 // TESR BOM Viewer — Gerber (RS-274X) + Excellon readers, Gerber .zip loader, and BOM + CPL + Gerber board builder
 // Made by TESR — Thai Embedded System and Robotics
 import { unzipSync, strFromU8 } from '../vendor/fflate/fflate.module.js';
-import { chainLoops, fpTransform, pointInPoly } from './kicad.js';
+import { chainLoops, fpTransform, pointInPoly } from './kicad.js?b=20261106b';
 
 // ------------------------------------------------------------ apertures ----
 

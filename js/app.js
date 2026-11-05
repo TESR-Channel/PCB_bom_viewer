@@ -1,10 +1,10 @@
 // TESR BOM Viewer — main application
 // Made by TESR — Thai Embedded System and Robotics · https://www.tesrshop.com
-import { parseKicadPcb, buildBom, readTableCsv, readTable, mergeBomCsv, refCompare } from './kicad.js';
-import { VERSION, BUILD_DATE, CHANGELOG } from './version.js';
-import { parseLabel, matchGroups, CameraScanner, decodeFile, beep } from './scan.js';
-import { Board2D } from './view2d.js';
-import { t, setLang } from './i18n.js';
+import { parseKicadPcb, buildBom, readTableCsv, readTable, mergeBomCsv, refCompare } from './kicad.js?b=20261106b';
+import { VERSION, BUILD_DATE, CHANGELOG } from './version.js?b=20261106b';
+import { parseLabel, matchGroups, CameraScanner, decodeFile, beep } from './scan.js?b=20261106b';
+import { Board2D } from './view2d.js?b=20261106b';
+import { t, setLang } from './i18n.js?b=20261106b';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -35,15 +35,32 @@ function saveOpts() { localStorageSet(OPT_KEY, JSON.stringify(opts)); }
 // ------------------------------------------------------------------ views ----
 const tip = $('#tip');
 const v2 = new Board2D($('#cv2d'), { onPick: (fp) => pickPart(fp), onHover: (fp, e) => hover(fp, e) });
-let v3 = null;
+let v3 = null, v3Loading = null;
+// 3D is loaded on demand. Any failure (no WebGL, stale cached files, a bad part) is shown in the
+// 3D pane instead of leaving it silently blank, and the next click retries.
+function err3d(err) {
+  const box = $('#err3d');
+  if (!err) { box.classList.add('hide'); return; }
+  console.error('[TESR 3D]', err);
+  $('#err3dMsg').textContent = String(err?.message || err).slice(0, 220);
+  box.classList.remove('hide');
+}
+function board3d(board) {
+  try { v3.setBoard(board); err3d(null); } catch (e) { err3d(e); }
+}
 async function ensure3d() {
   if (v3) return v3;
-  const { Board3D } = await import('./view3d.js');
-  v3 = new Board3D($('#host3d'), { onPick: (fp) => pickPart(fp), onHover: (fp, e) => hover(fp, e) });
-  v3.setTheme(opts.mask);
-  if (S.board) v3.setBoard(S.board);
-  syncViews();
-  return v3;
+  if (!v3Loading) v3Loading = (async () => {
+    const { Board3D } = await import('./view3d.js?b=20261106b');
+    const v = new Board3D($('#host3d'), { onPick: (fp) => pickPart(fp), onHover: (fp, e) => hover(fp, e) });
+    v3 = v;
+    v.visible = true;
+    v.setTheme(opts.mask);
+    if (S.board) board3d(S.board);
+    syncViews();
+    return v;
+  })().catch((e) => { v3Loading = null; throw e; });
+  return v3Loading;
 }
 
 function hover(fp, e) {
@@ -75,11 +92,11 @@ async function classify(f) {
   const n = f.name;
   if (/\.kicad_pcb$/i.test(n)) return { kind: 'pcb', name: n, text: await f.text() };
   if (/\.zip$/i.test(n)) {
-    const { readGerberZip } = await import('./gerber.js');
+    const { readGerberZip } = await import('./gerber.js?b=20261106b');
     return { kind: 'gerber', name: n, gerber: readGerberZip(await f.arrayBuffer()) };
   }
   if (/\.xlsx$/i.test(n)) {
-    const { readXlsx } = await import('./xlsx.js');
+    const { readXlsx } = await import('./xlsx.js?b=20261106b');
     const tbl = readTable(readXlsx(await f.arrayBuffer()));
     return { kind: tbl.kind, name: n, rows: tbl.rows };
   }
@@ -105,7 +122,7 @@ async function loadFiles(files) {
   let gerber = items.find((i) => i.kind === 'gerber');
   const loose = items.filter((i) => i.kind === 'gerberFile');
   if (!gerber && loose.length) {
-    const { readGerberFiles } = await import('./gerber.js');
+    const { readGerberFiles } = await import('./gerber.js?b=20261106b');
     gerber = { kind: 'gerber', name: `${loose.length} Gerber files`, gerber: readGerberFiles(loose) };
   }
   if (pcb) {
@@ -129,7 +146,7 @@ async function loadFiles(files) {
   if (bom) { S.fab.bom = bom.rows; S.fab.names.bom = bom.name; }
   if (cpl) { S.fab.cpl = cpl.rows; S.fab.names.cpl = cpl.name; }
   if (gerber) { S.fab.gerber = gerber.gerber; S.fab.names.gerber = gerber.name; }
-  const { boardFromFab } = await import('./gerber.js');
+  const { boardFromFab } = await import('./gerber.js?b=20261106b');
   const title = (S.fab.names.bom || S.fab.names.cpl || S.fab.names.gerber || 'Board')
     .replace(/\.(csv|xlsx|zip|txt)$/i, '').replace(/^(BOM|CPL|Gerber)[_ -]?/i, '').replace(/[_ -]?(JLCPCB|BOM|CPL)$/i, '') || 'Board';
   const board = boardFromFab(S.fab.bom, S.fab.cpl, S.fab.gerber, title);
@@ -197,7 +214,7 @@ function setBoard(board, keepState = false) {
   v2.setTheme(opts.mask);
   v2.setBoard(board.outline ? board : null);
   $('#boardHint').classList.toggle('hide', !!board.outline);
-  if (v3) v3.setBoard(board);
+  if (v3) board3d(board);
   renderTable();
   renderDetail();
   progress();
@@ -489,7 +506,10 @@ $('#segMode').addEventListener('click', async (e) => {
   $('#host3d').classList.toggle('hide', !is3);
   $('#seg3d').classList.toggle('hide', !is3);
   $('#segSide').classList.toggle('hide', is3);
-  if (is3) { const v = await ensure3d(); v.visible = true; v.resize(); } else if (v3) v3.visible = false;
+  $('#err3d').classList.add('hide');
+  if (is3) {
+    try { const v = await ensure3d(); v.visible = true; v.resize(); } catch (err) { err3d(err); }
+  } else if (v3) v3.visible = false;
 });
 $('#seg3d').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && v3) v3.view(b.dataset.v); });
 $('#btnFit').addEventListener('click', () => { if (S.mode === '3d' && v3) v3.view('iso'); else v2.fit(); });
@@ -515,7 +535,7 @@ $('#optBeep').checked = opts.beep;
 $('#optRefs').checked = opts.refs;
 $('#optNonBom').checked = opts.nonBom;
 $('#optLang').addEventListener('change', (e) => { opts.lang = e.target.value; saveOpts(); applyLang(); });
-$('#optMask').addEventListener('change', (e) => { opts.mask = e.target.value; saveOpts(); v2.setTheme(opts.mask); v3?.setTheme(opts.mask); });
+$('#optMask').addEventListener('change', (e) => { opts.mask = e.target.value; saveOpts(); v2.setTheme(opts.mask); if (v3) { try { v3.setTheme(opts.mask); } catch (err) { err3d(err); } } });
 $('#optAutoSource').addEventListener('change', (e) => { opts.autoSource = e.target.checked; saveOpts(); });
 $('#optBeep').addEventListener('change', (e) => { opts.beep = e.target.checked; saveOpts(); });
 $('#optRefs').addEventListener('change', (e) => { opts.refs = e.target.checked; saveOpts(); v2.showRefs = opts.refs; v2.draw(); });

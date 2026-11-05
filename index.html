@@ -7,7 +7,7 @@
   <meta name="description" content="TESR BOM Viewer — scan LCSC / DigiKey / Mouser bag labels and find where every part goes on your KiCad board. 100% offline in the browser. Made by TESR.">
   <meta name="theme-color" content="#0B0B0D">
   <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?b=20261106b">
   <script type="importmap">
     { "imports": {
         "three": "./vendor/three/three.module.min.js",
@@ -100,6 +100,7 @@
         <canvas id="cv2d"></canvas>
         <div id="host3d" class="hide"></div>
         <div class="board-hint hide" id="boardHint"><b data-i18n="noPos">ยังไม่มีตำแหน่งชิ้นส่วน</b><span data-i18n="noPosSub">เพิ่มไฟล์ CPL (+ Gerber) เพื่อดูบนบอร์ด</span></div>
+        <div class="board-hint err3d hide" id="err3d"><b data-i18n="err3d">เปิดภาพ 3D ไม่ได้</b><span data-i18n="err3dSub">กด Ctrl + F5 (Mac: Cmd + Shift + R) เพื่อโหลดใหม่ · ถ้ายังไม่ได้ ให้เปิด Hardware acceleration / WebGL ในเบราว์เซอร์</span><code id="err3dMsg"></code></div>
         <div class="tip" id="tip"></div>
         <div class="toast" id="toast"></div>
       </div>
@@ -283,6 +284,6 @@
 
   <div class="dropzone hide" id="dropzone"><div><b data-i18n="dropTitle">วางไฟล์ที่นี่</b><span>.kicad_pcb · BOM · CPL · Gerber .zip</span></div></div>
 
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?b=20261106b"></script>
 </body>
 </html>

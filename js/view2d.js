@@ -1,7 +1,7 @@
 // TESR BOM Viewer — 2D board view (canvas): pads, silkscreen, bodies, highlight, pan / zoom / pick
 // Made by TESR — Thai Embedded System and Robotics
-import { pointInPoly } from './kicad.js';
-import { paintSide, THEMES } from './paint.js';
+import { pointInPoly } from './kicad.js?b=20261106b';
+import { paintSide, THEMES } from './paint.js?b=20261106b';
 
 const MASKS = {
   black: { mask: '#141416', edge: '#3a3a40', pad: '#C9A84C', padTh: '#d8c07a', silk: '#e9e6df', body: 'rgba(255,255,255,0.05)' },

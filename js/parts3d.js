@@ -2,8 +2,8 @@
 // Each builder works in the footprint's local frame: X = local x, Z = local y (KiCad), Y = up from the board surface.
 // Made by TESR — Thai Embedded System and Robotics
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RoundedBoxGeometry } from '../vendor/three/RoundedBoxGeometry.js';
+import { mergeGeometries } from '../vendor/three/BufferGeometryUtils.js';
 
 // ------------------------------------------------------------ helpers ----
 const COL = {

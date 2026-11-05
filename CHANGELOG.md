@@ -5,6 +5,7 @@
 - 3D board surfaces painted from the design: copper tracks / zones / vias under the mask, thick silkscreen, logos and texts (top and bottom)
 - 2D view shows copper and silkscreen texts (KiCad + Gerber), static layers cached for smooth animation
 - 3D "BOTTOM" view button label
+- Fix: 3D view could stay blank when the browser mixed cached files from the previous release — files are now cache-busted per build (`tools/set-build.sh`), three.js add-ons load by path, and any 3D failure (no WebGL, a bad part) is shown in the 3D pane instead of a silent blank
 
 ## v1.10 — 2026-11-06
 - Guided **Open files** dialog: explains which file does what (BOM → table, CPL → positions, Gerber → 2D/3D board), with a "what you get" matrix and export tips for KiCad / EasyEDA / Altium

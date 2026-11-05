@@ -2,9 +2,9 @@
 // Board = extruded outline + painted top / bottom textures (mask, copper, silkscreen, texts) + metal pads + procedural parts.
 // Made by TESR — Thai Embedded System and Robotics
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { paintSide, THEMES } from './paint.js';
-import { buildPart } from './parts3d.js';
+import { OrbitControls } from '../vendor/three/OrbitControls.js';
+import { paintSide, THEMES } from './paint.js?b=20261106b';
+import { buildPart } from './parts3d.js?b=20261106b';
 
 export class Board3D {
   constructor(host, { onPick, onHover } = {}) {
@@ -93,11 +93,12 @@ export class Board3D {
     const b = this.board;
     const [x0, y0, x1, y1] = b.bounds;
     const W = x1 - x0, H = y1 - y0;
-    const ppm = Math.min(28, 4096 / Math.max(W, H));
+    const ppm = Math.min(28, Math.min(4096, this.renderer.capabilities.maxTextureSize || 4096) / Math.max(W, H));
     const c = document.createElement('canvas');
     c.width = Math.ceil(W * ppm); c.height = Math.ceil(H * ppm);
     const ctx = c.getContext('2d');
-    paintSide(ctx, b, side, (x, y) => [(x - x0) * ppm, (y - y0) * ppm], ppm, this.theme, { mirrorView: false });
+    try { paintSide(ctx, b, side, (x, y) => [(x - x0) * ppm, (y - y0) * ppm], ppm, this.theme, { mirrorView: false }); }
+    catch (e) { console.warn('[TESR 3D] paint', side, e); }
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
@@ -120,7 +121,7 @@ export class Board3D {
 
     // ---- board body: outline + cut-outs + plated / mounting holes ----
     const shape = new THREE.Shape(board.outline.map(([x, y]) => P(x, y)));
-    for (const h of board.holes) shape.holes.push(new THREE.Path(h.map(([x, y]) => P(x, y))));
+    for (const h of board.holes || []) shape.holes.push(new THREE.Path(h.map(([x, y]) => P(x, y))));
     for (const fp of board.footprints) for (const pd of fp.pads) {
       if (!pd.drill) continue;
       const r = Math.min(pd.drill[0], pd.drill[1]) / 2;
@@ -181,7 +182,8 @@ export class Board3D {
     // ---- components ----
     for (const fp of board.footprints) {
       if (!fp.ref || !isFinite(fp.x)) continue;
-      const part = buildPart(fp);
+      let part = null;
+      try { part = buildPart(fp); } catch (e) { console.warn('[TESR 3D] part', fp.ref, e); }
       if (!part) continue;
       const g = part.group;
       g.position.set(fp.x - this.cx, fp.side === 'F' ? T + 0.035 : -0.035, fp.y - this.cy);
