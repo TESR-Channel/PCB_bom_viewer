@@ -1,6 +1,7 @@
 // TESR BOM Viewer — 2D board view (canvas): pads, silkscreen, bodies, highlight, pan / zoom / pick
 // Made by TESR — Thai Embedded System and Robotics
 import { pointInPoly } from './kicad.js';
+import { paintSide, THEMES } from './paint.js';
 
 const MASKS = {
   black: { mask: '#141416', edge: '#3a3a40', pad: '#C9A84C', padTh: '#d8c07a', silk: '#e9e6df', body: 'rgba(255,255,255,0.05)' },
@@ -25,11 +26,12 @@ export class Board2D {
     this.pulse = 0;
     this._bind();
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
+    document.fonts?.ready.then(() => { this._baseKey = null; this.draw(); });
     const tick = () => { this.pulse = (performance.now() / 600) % (Math.PI * 2); if (this.selected.size) this.draw(); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
   }
 
-  setBoard(board) { this.board = board; this.fit(); }
+  setBoard(board) { this.board = board; this._gen = (this._gen || 0) + 1; this.fit(); }
   setSide(s) { this.side = s; this.fit(); }
   setTheme(t) { this.theme = t; this.draw(); }
 
@@ -156,53 +158,20 @@ export class Board2D {
     c.clearRect(0, 0, W, H);
     const b = this.board;
     if (!b?.outline) return;
-    const T = MASKS[this.theme] || MASKS.black;
+    const T = THEMES[this.theme] || THEMES.black;
     const s = this.view.s;
+    // static layers (mask, copper, silk, pads) are cached until the view changes
+    const key = [W, H, s, this.view.ox, this.view.oy, this.side, this.theme, b.fileName, b.footprints.length, this._gen || 0].join('|');
+    if (key !== this._baseKey) {
+      this._base = this._base || document.createElement('canvas');
+      this._base.width = W; this._base.height = H;
+      const bc = this._base.getContext('2d');
+      bc.clearRect(0, 0, W, H);
+      this._drawBase(bc, b, T, s);
+      this._baseKey = key;
+    }
+    c.drawImage(this._base, 0, 0);
     for (const p of this.panels()) {
-      // board
-      c.beginPath();
-      const poly = (pts) => pts.forEach(([x, y], i) => { const [X, Y] = this.tx(p, x, y); i ? c.lineTo(X, Y) : c.moveTo(X, Y); });
-      poly(b.outline); c.closePath();
-      for (const h of b.holes) { poly(h); c.closePath(); }
-      c.fillStyle = T.mask; c.fill('evenodd');
-      c.lineWidth = Math.max(1, 0.25 * s); c.strokeStyle = T.edge; c.stroke();
-
-      // side label
-      c.fillStyle = 'rgba(201,168,76,0.9)';
-      c.font = `600 ${Math.max(11, 3.2 * s)}px "Chakra Petch", sans-serif`;
-      const [lx, ly] = this.tx(p, p.side === 'B' ? b.bounds[2] : b.bounds[0], b.bounds[1]);
-      if (this.side === 'FB') c.fillText(p.side === 'F' ? 'TOP' : 'BOTTOM', lx, ly - 6 * this.dpr);
-
-      // silkscreen + pads
-      for (const fp of b.footprints) {
-        const own = fp.side === p.side;
-        // silk on own side
-        if (own && fp.silk.length) {
-          c.strokeStyle = T.silk; c.globalAlpha = 0.75; c.lineWidth = Math.max(0.6, 0.12 * s);
-          c.beginPath();
-          for (const pl of fp.silk) pl.forEach(([x0, y0], i) => {
-            const a = (fp.rot * Math.PI) / 180, cs = Math.cos(a), sn = Math.sin(a);
-            const [X, Y] = this.tx(p, fp.x + x0 * cs + y0 * sn, fp.y - x0 * sn + y0 * cs);
-            i ? c.lineTo(X, Y) : c.moveTo(X, Y);
-          });
-          c.stroke(); c.globalAlpha = 1;
-        }
-        for (const pd of fp.pads) {
-          const vis = p.side === 'F' ? pd.front : pd.back;
-          if (!vis) continue;
-          this._pad(c, p, pd, pd.drill ? T.padTh : T.pad);
-        }
-        if (!fp.pads.length && own && fp.body?.length) this._body(c, p, fp, 'rgba(201,168,76,0.35)', T.pad, 1);
-      }
-
-      // board-level silkscreen (from Gerber)
-      if (b.silk && b.silk[p.side]?.length) {
-        c.strokeStyle = T.silk; c.globalAlpha = 0.7; c.lineWidth = Math.max(0.6, 0.12 * s);
-        c.beginPath();
-        for (const pl of b.silk[p.side]) pl.forEach(([x, y], i) => { const [X, Y] = this.tx(p, x, y); i ? c.lineTo(X, Y) : c.moveTo(X, Y); });
-        c.stroke(); c.globalAlpha = 1;
-      }
-
       // placed overlay
       for (const fp of b.footprints) {
         if (fp.side !== p.side || !this.placed.has(fp.ref) || this.selected.has(fp.ref)) continue;
@@ -224,8 +193,10 @@ export class Board2D {
       // ref labels
       if (this.showRefs && s > 6) {
         c.textAlign = 'center'; c.textBaseline = 'middle';
+        const silkRefs = new Set((b.texts?.[p.side] || []).map((t) => t.text));
         for (const fp of b.footprints) {
           if (fp.side !== p.side || !fp.body?.length || !fp.inBom) continue;
+          if (silkRefs.has(fp.ref) && !this.selected.has(fp.ref) && !this.placed.has(fp.ref)) continue; // already printed on the silkscreen
           const [a, bb, cc, d] = fp.localBox;
           const wmm = Math.max(cc - a, d - bb);
           const fs = Math.min(1.6, Math.max(0.55, wmm / Math.max(3, fp.ref.length) * 1.5)) * s;
@@ -240,6 +211,31 @@ export class Board2D {
         }
         c.textAlign = 'start'; c.textBaseline = 'alphabetic';
       }
+    }
+  }
+
+  _drawBase(c, b, T, s) {
+    for (const p of this.panels()) {
+      // board: mask, copper, silkscreen, texts
+      paintSide(c, b, p.side, (x, y) => this.tx(p, x, y), s, this.theme, { mirrorView: p.side === 'B' });
+
+      // side label
+      c.fillStyle = 'rgba(201,168,76,0.9)';
+      c.font = `600 ${Math.max(11, 3.2 * s)}px "Chakra Petch", sans-serif`;
+      const [lx, ly] = this.tx(p, p.side === 'B' ? b.bounds[2] : b.bounds[0], b.bounds[1]);
+      if (this.side === 'FB') c.fillText(p.side === 'F' ? 'TOP' : 'BOTTOM', lx, ly - 6 * this.dpr);
+
+      // pads
+      for (const fp of b.footprints) {
+        const own = fp.side === p.side;
+        for (const pd of fp.pads) {
+          const vis = p.side === 'F' ? pd.front : pd.back;
+          if (!vis) continue;
+          this._pad(c, p, pd, pd.drill ? T.padTh : T.pad);
+        }
+        if (!fp.pads.length && own && fp.body?.length) this._body(c, p, fp, 'rgba(201,168,76,0.35)', T.pad, 1);
+      }
+
     }
   }
 

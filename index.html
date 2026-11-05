@@ -11,7 +11,9 @@
   <script type="importmap">
     { "imports": {
         "three": "./vendor/three/three.module.min.js",
-        "three/addons/controls/OrbitControls.js": "./vendor/three/OrbitControls.js"
+        "three/addons/controls/OrbitControls.js": "./vendor/three/OrbitControls.js",
+        "three/addons/geometries/RoundedBoxGeometry.js": "./vendor/three/RoundedBoxGeometry.js",
+        "three/addons/utils/BufferGeometryUtils.js": "./vendor/three/BufferGeometryUtils.js"
     } }
   </script>
 </head>
@@ -21,7 +23,7 @@
       <img src="assets/tesr_logo.png" alt="TESR logo" width="44" height="44">
       <span class="brand-txt"><b>TESR</b><small>BOM VIEWER</small></span>
     </a>
-    <button class="ver" id="verBadge" title="What's new / มีอะไรใหม่">v1.10</button>
+    <button class="ver" id="verBadge" title="What's new / มีอะไรใหม่">v1.20</button>
     <div class="board-info">
       <div class="board-title" id="boardTitle">—</div>
       <div class="board-sub" id="boardSub" data-i18n="noBoard">ยังไม่ได้เปิดบอร์ด</div>
@@ -159,7 +161,7 @@
     <span class="sep">|</span>
     <span data-i18n="offline">ทำงานในเบราว์เซอร์ 100% — ไม่ส่งไฟล์/ภาพขึ้นคลาวด์</span>
     <span class="grow"></span>
-    <a href="#" id="footVer">TESR BOM Viewer v1.10</a>
+    <a href="#" id="footVer">TESR BOM Viewer v1.20</a>
     <span class="sep">|</span>
     <a href="https://github.com/TESR-Channel/PCB_bom_viewer" target="_blank" rel="noopener">GitHub</a>
   </footer>

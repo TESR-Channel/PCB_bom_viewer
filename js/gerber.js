@@ -301,14 +301,26 @@ export function boardFromFab(bomRows, cplRows, gerber, name = 'JLCPCB') {
   const realPads = pads.filter((p) => !viaKeys.has(p));
   for (const p of realPads) { p.front = p.side === 'F' || !!p.drill; p.back = p.side === 'B' || !!p.drill; }
 
-  // ---- silkscreen (board level, Y-down) ----
+  // ---- silkscreen + copper (board level, Y-down) ----
   const silk = { F: [], B: [] };
   for (const [side, key] of [['F', 'silkF'], ['B', 'silkB']]) {
     const l = L[key];
     if (!l) continue;
-    for (const s of l.strokes) silk[side].push(flip(s.pts));
-    for (const r of l.regions) silk[side].push(flip(r.concat([r[0]])));
+    for (const st of l.strokes) silk[side].push({ pts: flip(st.pts), w: st.w || 0.15, fill: false });
+    for (const r of l.regions) silk[side].push({ pts: flip(r.concat([r[0]])), w: 0, fill: true });
+    for (const f of l.flashes) {
+      const hw = f.w / 2, hh = f.h / 2, x = f.x + (f.ox || 0), y = -(f.y + (f.oy || 0));
+      silk[side].push({ pts: [[x - hw, y - hh], [x + hw, y - hh], [x + hw, y + hh], [x - hw, y + hh], [x - hw, y - hh]], w: 0, fill: true });
+    }
   }
+  const copper = { F: { tracks: [], zones: [] }, B: { tracks: [], zones: [] } };
+  for (const [side, key] of [['F', 'cuF'], ['B', 'cuB']]) {
+    const l = L[key];
+    if (!l) continue;
+    for (const st of l.strokes) copper[side].tracks.push({ pts: flip(st.pts), w: st.w || 0.2 });
+    for (const r of l.regions) copper[side].zones.push(flip(r));
+  }
+  const vias = [...viaKeys].map((p) => ({ x: p.x, y: p.y, d: p.w, drill: Math.min(p.w * 0.5, 0.4) }));
 
   // ---- placement (CPL) with automatic origin alignment ----
   let cpl = (cplRows || []).flatMap((r) => r.refs.map((ref) => ({ ref, x: r.x, y: r.y, rot: r.rot, side: /^b/i.test(r.layer) ? 'B' : 'F' })))
@@ -413,6 +425,6 @@ export function boardFromFab(bomRows, cplRows, gerber, name = 'JLCPCB') {
   const bounds = outline ? bbox(outline) : null;
   return {
     fileName: name, title: name.replace(/\.[^.]+$/, ''), rev: '', date: '', company: '', thickness: 1.6, maskColor: null,
-    outline, holes, bounds, footprints, silk, fab: true, csvOnly: !gerber,
+    outline, holes, bounds, footprints, silk, texts: { F: [], B: [] }, copper, vias, fab: true, csvOnly: !gerber,
   };
 }

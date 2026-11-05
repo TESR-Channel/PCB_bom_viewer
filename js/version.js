@@ -1,8 +1,23 @@
 // TESR BOM Viewer — version + change log (shown in the app header / "What's new")
-export const VERSION = '1.10';
+export const VERSION = '1.20';
 export const BUILD_DATE = '2026-11-06';
 
 export const CHANGELOG = [
+  {
+    v: '1.20', date: '2026-11-06',
+    th: [
+      'โมเดล 3D ละเอียดขึ้นมาก: R/C มีขั้วโลหะ, IC มีขา gull-wing + จุด pin 1 + ตัวหนังสือบนตัวชิป, ตัวเก็บประจุอิเล็กโทรไลต์, คริสตัล, ตัวเหนี่ยวนำ, USB-C, pin header / socket, JST, M8',
+      'บอร์ด 3D แสดงลายทองแดง (track / zone / via) ใต้ solder mask, silkscreen ตัวหนา, โลโก้ และตัวหนังสือ ทั้งด้านบนและด้านล่าง',
+      'บอร์ด 2D แสดงลายทองแดง + ตัวหนังสือ silkscreen จากไฟล์ KiCad / Gerber · วาดเร็วขึ้น (cache)',
+      'ปุ่มมุมมอง 3D "BOTTOM"',
+    ],
+    en: [
+      'Much more detailed 3D parts: R/C end caps, gull-wing IC leads + pin-1 dimple + top marking, electrolytics, crystals, inductors, USB-C, pin headers / sockets, JST, M8',
+      '3D board shows copper (tracks / zones / vias) under the solder mask, thick silkscreen, logos and texts on both sides',
+      '2D board shows copper + silkscreen texts from KiCad / Gerber · faster redraw (cached)',
+      '3D view button renamed "BOTTOM"',
+    ],
+  },
   {
     v: '1.10', date: '2026-11-06',
     th: [

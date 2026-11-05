@@ -2,7 +2,7 @@
   <a href="https://www.tesrshop.com"><img src="assets/tesr_logo.png" width="110" alt="TESR"></a>
 </p>
 
-<h1 align="center">TESR BOM Viewer <sub>v1.10</sub></h1>
+<h1 align="center">TESR BOM Viewer <sub>v1.20</sub></h1>
 <p align="center"><b>จากถุงอะไหล่ → ตำแหน่งบนบอร์ด</b> · From the bag to the board</p>
 
 <p align="center">

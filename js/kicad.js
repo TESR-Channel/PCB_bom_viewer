@@ -108,6 +108,39 @@ function circlePoints(c, r, segs = 40) {
   return pts;
 }
 
+function strokeWidth(node, def = 0.15) {
+  const st = kid(node, 'stroke');
+  const w = st ? kid(st, 'width') : kid(node, 'width');
+  return w ? num(w[1]) || def : def;
+}
+function isFilled(node) {
+  const f = kid(node, 'fill');
+  return !!f && /^(solid|yes|true)$/i.test(str(f[1]));
+}
+function isHidden(node) {
+  if (node.some((x) => x === 'hide')) return true;
+  const h = kid(node, 'hide');
+  if (h && str(h[1]) !== 'no') return true;
+  const e = kid(node, 'effects');
+  if (e && (e.some((x) => x === 'hide') || (kid(e, 'hide') && str(kid(e, 'hide')[1]) !== 'no'))) return true;
+  return false;
+}
+function textInfo(node, txt, x, y, angle) {
+  const e = kid(node, 'effects') || [];
+  const font = kid(e, 'font') || [];
+  const size = kid(font, 'size');
+  const th = kid(font, 'thickness');
+  const just = kid(e, 'justify') || [];
+  const js = just.slice(1).map(str);
+  return {
+    text: txt, x, y, angle,
+    h: size ? num(size[1]) : 1, w: size ? num(size[2]) : 1, thick: th ? num(th[1]) : 0.15,
+    hj: js.includes('left') ? 'left' : js.includes('right') ? 'right' : 'center',
+    vj: js.includes('top') ? 'top' : js.includes('bottom') ? 'bottom' : 'middle',
+    mirror: js.includes('mirror'),
+  };
+}
+
 /** Convert a graphic item (gr_* / fp_*) to one or more polylines in its own coordinate frame. */
 function shapeToPolylines(node) {
   const t = node[0].replace(/^(gr_|fp_)/, '');
@@ -229,6 +262,10 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
     }
   }
 
+  // ---- silkscreen / copper collections (board coordinates) ----
+  const silk = { F: [], B: [] }, texts = { F: [], B: [] };
+  const copper = { F: { tracks: [], zones: [] }, B: { tracks: [], zones: [] } }, vias = [];
+
   // ---- footprints ----
   const footprints = [];
   for (const n of tree) {
@@ -256,6 +293,17 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
       if (kind === 'reference' && !fp.ref) fp.ref = str(t[2]);
       if (kind === 'value' && !fp.value) fp.value = str(t[2]);
     }
+    for (const t of [...kids(n, 'fp_text'), ...kids(n, 'property')]) {
+      const ly = layerOf(t);
+      if (!/SilkS$/.test(ly) || isHidden(t)) continue;
+      const tat = kid(t, 'at');
+      if (!tat) continue;
+      let txt = str(t[0] === 'fp_text' ? t[2] : t[2]);
+      txt = txt.replace(/\$\{REFERENCE\}/g, fp.ref).replace(/\$\{VALUE\}/g, fp.value);
+      if (!txt) continue;
+      const [wx, wy] = fpTransform(fp, num(tat[1]), num(tat[2]));
+      texts[ly.startsWith('B') ? 'B' : 'F'].push(textInfo(t, txt, wx, wy, tat[3] != null ? num(tat[3]) : 0));
+    }
     const attr = kid(n, 'attr');
     if (attr) for (const a of attr.slice(1)) fp.attr[str(a)] = true;
     if (kid(n, 'dnp')) fp.attr.dnp = true;
@@ -263,7 +311,11 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
       if (!Array.isArray(g) || !/^fp_(line|rect|circle|arc|poly|curve)$/.test(g[0])) continue;
       const ly = layerOf(g);
       const polys = shapeToPolylines(g);
-      if (/SilkS$/.test(ly)) fp.silk.push(...polys);
+      if (/SilkS$/.test(ly)) {
+        fp.silk.push(...polys);
+        const side = ly.startsWith('B') ? 'B' : 'F', w = strokeWidth(g), fill = isFilled(g);
+        for (const pl of polys) silk[side].push({ pts: pl.map(([x, y]) => fpTransform(fp, x, y)), w, fill });
+      }
       else if (/Fab$/.test(ly)) fp.fab.push(...polys);
       else if (/CrtYd$/.test(ly)) fp.crtyd.push(...polys);
       else if (ly === 'Edge.Cuts') edgePolys.push(...polys.map((pl) => pl.map(([x, y]) => fpTransform(fp, x, y))));
@@ -312,6 +364,32 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
     footprints.push(fp);
   }
 
+  // ---- board-level silkscreen, texts and copper ----
+  for (const n of tree) {
+    if (!Array.isArray(n)) continue;
+    const ly = layerOf(n);
+    if (/^gr_(line|rect|circle|arc|poly|curve)$/.test(n[0]) && /SilkS$/.test(ly)) {
+      for (const pl of shapeToPolylines(n)) silk[ly.startsWith('B') ? 'B' : 'F'].push({ pts: pl, w: strokeWidth(n), fill: isFilled(n) });
+    } else if (n[0] === 'gr_text' && /SilkS$/.test(ly) && !isHidden(n)) {
+      const at = kid(n, 'at');
+      texts[ly.startsWith('B') ? 'B' : 'F'].push(textInfo(n, str(n[1]), num(at[1]), num(at[2]), at[3] != null ? num(at[3]) : 0));
+    } else if ((n[0] === 'segment' || n[0] === 'arc') && (ly === 'F.Cu' || ly === 'B.Cu')) {
+      const w = num((kid(n, 'width') || [])[1]) || 0.25;
+      const pts = n[0] === 'arc' ? arcPoints(xy(kid(n, 'start')), xy(kid(n, 'mid')), xy(kid(n, 'end')), 12) : [xy(kid(n, 'start')), xy(kid(n, 'end'))];
+      copper[ly[0]].tracks.push({ pts, w });
+    } else if (n[0] === 'via') {
+      const at = kid(n, 'at'), sz = kid(n, 'size'), dr = kid(n, 'drill');
+      vias.push({ x: num(at[1]), y: num(at[2]), d: sz ? num(sz[1]) : 0.6, drill: dr ? num(dr[1]) : 0.3 });
+    } else if (n[0] === 'zone') {
+      for (const fpoly of kids(n, 'filled_polygon')) {
+        const fl = layerOf(fpoly);
+        if (fl !== 'F.Cu' && fl !== 'B.Cu') continue;
+        const ptsNode = kid(fpoly, 'pts');
+        if (ptsNode) copper[fl[0]].zones.push(kids(ptsNode, 'xy').map(xy));
+      }
+    }
+  }
+
   // ---- outline loops ----
   let loops = chainLoops(edgePolys);
   loops = loops.filter((l) => l.length > 2);
@@ -329,7 +407,7 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
 
   return {
     fileName, title, rev, date, company, version, thickness, maskColor,
-    outline, holes, bounds, footprints,
+    outline, holes, bounds, footprints, silk, texts, copper, vias,
   };
 }
 
