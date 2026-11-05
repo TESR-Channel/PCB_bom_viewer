@@ -51,6 +51,7 @@
       (copper_finish "HAL lead-free")
       (dielectric_constraints no)
     )
+    (aux_axis_origin 100 167.9714)
     (pad_to_mask_clearance 0)
     (pcbplotparams
       (layerselection 0x00010fc_ffffffff)

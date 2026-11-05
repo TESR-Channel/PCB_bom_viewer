@@ -155,6 +155,9 @@ export class Board3D {
           }
         }
       }
+      for (const pl of board.silk?.[side] || []) for (let i = 0; i < pl.length - 1; i++) {
+        for (const [x, y] of [pl[i], pl[i + 1]]) pts.push(x - this.cx, side === 'F' ? T + 0.015 : -0.015, y - this.cy);
+      }
       if (!pts.length) continue;
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
       this.group.add(new THREE.LineSegments(g, this.silkMat));
@@ -163,7 +166,7 @@ export class Board3D {
     // ---- component bodies ----
     for (const fp of board.footprints) {
       const st = partStyle(fp);
-      if (!st || !fp.localBox) continue;
+      if (!st || !fp.localBox || !fp.ref || !isFinite(fp.x)) continue;
       const [a, b, c, d] = fp.localBox;
       const w = Math.max(0.3, c - a), l = Math.max(0.3, d - b);
       const lcx = (a + c) / 2, lcy = (b + d) / 2;

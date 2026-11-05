@@ -89,7 +89,7 @@ export class Board2D {
     if (!q) return null;
     let best = null, bestA = Infinity;
     for (const fp of this.board.footprints) {
-      if (fp.side !== q.side || !fp.body?.length) continue;
+      if (fp.side !== q.side || !fp.body?.length || !fp.ref) continue;
       if (pointInPoly(q.x, q.y, fp.body)) {
         const [a, b, c, d] = fp.localBox; const area = (c - a) * (d - b);
         if (area < bestA) { best = fp; bestA = area; }
@@ -99,7 +99,7 @@ export class Board2D {
     // nearest pad within 1 mm
     let bd = 1.0;
     for (const fp of this.board.footprints) {
-      if (fp.side !== q.side) continue;
+      if (!fp.ref || (fp.side !== q.side && !fp.pads.some((x) => x.drill))) continue;
       for (const pd of fp.pads) {
         const d = Math.hypot(pd.x - q.x, pd.y - q.y);
         if (d < bd) { bd = d; best = fp; }
@@ -192,7 +192,15 @@ export class Board2D {
           if (!vis) continue;
           this._pad(c, p, pd, pd.drill ? T.padTh : T.pad);
         }
-        if (fp.csvOnly || (!fp.pads.length && own && fp.body?.length)) this._body(c, p, fp, 'rgba(201,168,76,0.35)', T.pad, 1);
+        if (!fp.pads.length && own && fp.body?.length) this._body(c, p, fp, 'rgba(201,168,76,0.35)', T.pad, 1);
+      }
+
+      // board-level silkscreen (from Gerber)
+      if (b.silk && b.silk[p.side]?.length) {
+        c.strokeStyle = T.silk; c.globalAlpha = 0.7; c.lineWidth = Math.max(0.6, 0.12 * s);
+        c.beginPath();
+        for (const pl of b.silk[p.side]) pl.forEach(([x, y], i) => { const [X, Y] = this.tx(p, x, y); i ? c.lineTo(X, Y) : c.moveTo(X, Y); });
+        c.stroke(); c.globalAlpha = 1;
       }
 
       // placed overlay

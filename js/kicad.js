@@ -433,8 +433,8 @@ export function parseCsv(text) {
 
 const COLS = {
   refs: ['designator', 'designators', 'reference', 'references', 'ref', 'refs', 'refdes', 'part', 'parts'],
-  value: ['comment', 'value', 'val'],
-  footprint: ['footprint', 'package', 'pcb footprint'],
+  value: ['comment', 'value', 'val', 'values'],
+  footprint: ['footprint', 'package', 'pcb footprint', 'footprint name'],
   lcsc: ['lcsc', 'lcsc part #', 'lcsc part', 'lcsc#', 'jlcpcb part #', 'jlcpcb part', 'jlc', 'lcsc part number', 'supplier part'],
   mpn: ['mpn', 'mpn / note', 'manufacturer part number', 'mfr. part #', 'mfr part', 'part number', 'manufacturer part', 'mfg part #'],
   manufacturer: ['manufacturer', 'mfr', 'mfr.', 'manufacturer name'],
@@ -470,8 +470,20 @@ export function splitRefs(s) {
 /**
  * Read a CSV (BOM or CPL). Returns { kind: 'bom'|'cpl', rows: [{refs, ...}] }.
  */
-export function readTableCsv(text) {
-  const rows = parseCsv(text);
+export function readTableCsv(text) { return readTable(parseCsv(text)); }
+
+/** Parse a length cell that may carry a unit (12.3, 12.3mm, 500mil, 0.5in). */
+function lengthMm(s) {
+  const m = /^\s*([+-]?[\d.]+)\s*(mm|mil|in|inch)?\s*$/i.exec(String(s || ''));
+  if (!m) return NaN;
+  const v = parseFloat(m[1]);
+  const u = (m[2] || 'mm').toLowerCase();
+  return u === 'mil' ? v * 0.0254 : u.startsWith('in') ? v * 25.4 : v;
+}
+
+/** Same as readTableCsv but from a 2-D array of cells (CSV or XLSX). */
+export function readTable(rows) {
+  rows = rows.map((r) => r.map((c) => (c == null ? '' : String(c))));
   let hi = rows.findIndex((r) => { const m = mapHeader(r); return m.refs != null; });
   if (hi < 0) throw new Error('CSV: no Designator / Reference column');
   const m = mapHeader(rows[hi]);
@@ -481,7 +493,7 @@ export function readTableCsv(text) {
     return {
       refs: splitRefs(g('refs')), value: g('value'), footprint: g('footprint'), lcsc: g('lcsc'), mpn: g('mpn'),
       manufacturer: g('manufacturer'), digikey: g('digikey'), mouser: g('mouser'),
-      x: parseFloat(g('midx')), y: parseFloat(g('midy')), layer: g('layer'), rot: parseFloat(g('rotation')) || 0,
+      x: lengthMm(g('midx')), y: lengthMm(g('midy')), layer: g('layer'), rot: parseFloat(g('rotation')) || 0,
     };
   }).filter((r) => r.refs.length);
   return { kind: isCpl ? 'cpl' : 'bom', rows: data };

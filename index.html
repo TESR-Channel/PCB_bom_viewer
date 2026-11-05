@@ -21,6 +21,7 @@
       <img src="assets/tesr_logo.png" alt="TESR logo" width="44" height="44">
       <span class="brand-txt"><b>TESR</b><small>BOM VIEWER</small></span>
     </a>
+    <button class="ver" id="verBadge" title="What's new / มีอะไรใหม่">v1.10</button>
     <div class="board-info">
       <div class="board-title" id="boardTitle">—</div>
       <div class="board-sub" id="boardSub" data-i18n="noBoard">ยังไม่ได้เปิดบอร์ด</div>
@@ -32,10 +33,7 @@
       <div class="bar gold"><i id="barSourced"></i></div>
     </div>
     <div class="top-actions">
-      <label class="btn" title="Open .kicad_pcb / BOM .csv / CPL .csv">
-        <input type="file" id="fileInput" accept=".kicad_pcb,.csv,.txt,.tsv" multiple hidden>
-        <span data-i18n="open">เปิดไฟล์</span>
-      </label>
+      <button class="btn" id="btnOpen" data-i18n="open">เปิดไฟล์</button>
       <button class="btn ghost" id="btnDemo" data-i18n="demo">ตัวอย่าง</button>
       <button class="btn ghost icon" id="btnMenu" title="Settings">⚙</button>
     </div>
@@ -66,8 +64,17 @@
           <tbody></tbody>
         </table>
         <div class="empty" id="emptyTable">
-          <img src="assets/tesr_logo.png" alt="" width="84" height="84">
-          <p data-i18n-html="dropHint">ลากไฟล์ <b>.kicad_pcb</b> (และ BOM <b>.csv</b> ถ้ามี) มาวางที่นี่<br>หรือกด <b>ตัวอย่าง</b> เพื่อลองกับบอร์ด TESR Pincer V2</p>
+          <img src="assets/tesr_logo.png" alt="" width="72" height="72">
+          <h3 data-i18n="emptyTitle">เริ่มจากเปิดไฟล์บอร์ด</h3>
+          <div class="need-grid">
+            <div class="need"><b>A</b><span data-i18n-html="needA"><i>.kicad_pcb</i> ไฟล์เดียว — ได้ครบ ตาราง + 2D + 3D</span></div>
+            <div class="need"><b>B</b><span data-i18n-html="needB">ไฟล์สั่ง JLCPCB: <i>BOM</i> + <i>CPL</i> + <i>Gerber .zip</i></span></div>
+          </div>
+          <div class="row center">
+            <button class="btn primary" id="btnOpen2" data-i18n="openGuide">เปิดไฟล์ / ต้องใช้ไฟล์อะไร?</button>
+            <button class="btn ghost" id="btnDemo2" data-i18n="demo">ตัวอย่าง</button>
+          </div>
+          <p class="small" data-i18n="dropAnywhere">หรือลากไฟล์ทั้งหมดมาวางตรงไหนก็ได้ ระบบแยกประเภทให้เอง</p>
         </div>
       </div>
     </section>
@@ -90,6 +97,7 @@
       <div class="board-host" id="boardHost">
         <canvas id="cv2d"></canvas>
         <div id="host3d" class="hide"></div>
+        <div class="board-hint hide" id="boardHint"><b data-i18n="noPos">ยังไม่มีตำแหน่งชิ้นส่วน</b><span data-i18n="noPosSub">เพิ่มไฟล์ CPL (+ Gerber) เพื่อดูบนบอร์ด</span></div>
         <div class="tip" id="tip"></div>
         <div class="toast" id="toast"></div>
       </div>
@@ -151,6 +159,8 @@
     <span class="sep">|</span>
     <span data-i18n="offline">ทำงานในเบราว์เซอร์ 100% — ไม่ส่งไฟล์/ภาพขึ้นคลาวด์</span>
     <span class="grow"></span>
+    <a href="#" id="footVer">TESR BOM Viewer v1.10</a>
+    <span class="sep">|</span>
     <a href="https://github.com/TESR-Channel/PCB_bom_viewer" target="_blank" rel="noopener">GitHub</a>
   </footer>
 
@@ -179,7 +189,97 @@
     </div>
   </div>
 
-  <div class="dropzone hide" id="dropzone"><div><b data-i18n="dropTitle">วางไฟล์ที่นี่</b><span>.kicad_pcb · BOM .csv · CPL .csv</span></div></div>
+
+  <!-- open-files guide -->
+  <div class="modal hide" id="openModal">
+    <div class="modal-card wide">
+      <div class="modal-head">
+        <div><div class="kicker" data-i18n="openKicker">เปิดไฟล์บอร์ด</div><h2 data-i18n="openTitle">ต้องใช้ไฟล์อะไรบ้าง?</h2></div>
+        <button class="btn ghost icon" data-close>✕</button>
+      </div>
+      <div class="paths">
+        <section class="path">
+          <div class="path-head"><span class="tag">A</span><div><b data-i18n="pathA">ไฟล์ KiCad</b><small data-i18n="pathASub">ง่ายที่สุด · ได้ครบทุกอย่าง</small></div><span class="rec" data-i18n="recommended">แนะนำ</span></div>
+          <label class="slot" data-slot="pcb">
+            <input type="file" accept=".kicad_pcb" hidden>
+            <span class="slot-n">1</span>
+            <span class="slot-body"><b>.kicad_pcb</b><small data-i18n="slotPcb">ไฟล์ PCB ของ KiCad 6–9 → ตาราง BOM + บอร์ด 2D + 3D</small><em class="slot-file" data-i18n="notChosen">ยังไม่ได้เลือก</em></span>
+            <span class="badge req" data-i18n="required">จำเป็น</span>
+          </label>
+          <label class="slot" data-slot="bomA">
+            <input type="file" accept=".csv,.xlsx,.txt,.tsv" hidden>
+            <span class="slot-n">2</span>
+            <span class="slot-body"><b>BOM .csv / .xlsx</b><small data-i18n="slotBomA">ถ้าเลข LCSC / MPN ไม่ได้อยู่ใน KiCad → ใส่ไฟล์ BOM เพื่อให้สแกนถุงเจอ</small><em class="slot-file" data-i18n="notChosen">ยังไม่ได้เลือก</em></span>
+            <span class="badge opt" data-i18n="optional">เสริม</span>
+          </label>
+          <button class="btn ghost small" data-demo="kicad" data-i18n="demoKicad">ลองตัวอย่าง (KiCad)</button>
+        </section>
+        <section class="path">
+          <div class="path-head"><span class="tag">B</span><div><b data-i18n="pathB">ไฟล์สั่ง PCB + PCBA ของ JLCPCB</b><small data-i18n="pathBSub">ชุดเดียวกับที่อัปโหลดสั่งงาน · KiCad / EasyEDA / Altium</small></div></div>
+          <label class="slot" data-slot="bom">
+            <input type="file" accept=".csv,.xlsx,.txt,.tsv" hidden>
+            <span class="slot-n">1</span>
+            <span class="slot-body"><b>BOM</b> <span class="ext">.csv / .xlsx</span><small data-i18n="slotBom">รายการชิ้นส่วน (Comment, Designator, Footprint, LCSC) → ตาราง + สแกนถุง</small><em class="slot-file" data-i18n="notChosen">ยังไม่ได้เลือก</em></span>
+            <span class="badge req" data-i18n="required">จำเป็น</span>
+          </label>
+          <label class="slot" data-slot="cpl">
+            <input type="file" accept=".csv,.xlsx,.txt,.tsv" hidden>
+            <span class="slot-n">2</span>
+            <span class="slot-body"><b>CPL</b> <span class="ext">Pick &amp; Place .csv / .xlsx</span><small data-i18n="slotCpl">ตำแหน่งชิ้นส่วน (Designator, Mid X, Mid Y, Layer, Rotation) → รู้ว่าวางตรงไหน</small><em class="slot-file" data-i18n="notChosen">ยังไม่ได้เลือก</em></span>
+            <span class="badge rec2" data-i18n="recommended">แนะนำ</span>
+          </label>
+          <label class="slot" data-slot="gerber">
+            <input type="file" accept=".zip,.gbr,.gtl,.gbl,.gto,.gbo,.gtp,.gbp,.gts,.gbs,.gm1,.gko,.drl" multiple hidden>
+            <span class="slot-n">3</span>
+            <span class="slot-body"><b>Gerber</b> <span class="ext">.zip</span><small data-i18n="slotGerber">รูปร่างบอร์ด pad รู silkscreen → ภาพ 2D / 3D เหมือนจริง</small><em class="slot-file" data-i18n="notChosen">ยังไม่ได้เลือก</em></span>
+            <span class="badge rec2" data-i18n="recommended">แนะนำ</span>
+          </label>
+          <button class="btn ghost small" data-demo="jlc" data-i18n="demoJlc">ลองตัวอย่าง (ไฟล์ JLCPCB)</button>
+        </section>
+      </div>
+
+      <table class="matrix">
+        <thead><tr><th data-i18n="mFiles">ไฟล์ที่มี</th><th data-i18n="mTable">ตาราง BOM</th><th data-i18n="mScan">สแกนถุง</th><th>2D</th><th>3D</th></tr></thead>
+        <tbody>
+          <tr><td><b>.kicad_pcb</b></td><td class="y">✓</td><td class="y" data-i18n="mScanK">✓ *</td><td class="y" data-i18n="mFull">✓ เต็ม</td><td class="y" data-i18n="mFull">✓ เต็ม</td></tr>
+          <tr><td>BOM</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><td>BOM + CPL</td><td class="y">✓</td><td class="y">✓</td><td class="m" data-i18n="mBoxes">กล่องตามตำแหน่ง</td><td class="m" data-i18n="mBoxes">กล่องตามตำแหน่ง</td></tr>
+          <tr><td>BOM + CPL + Gerber</td><td class="y">✓</td><td class="y">✓</td><td class="y" data-i18n="mFull">✓ เต็ม</td><td class="y" data-i18n="mFull">✓ เต็ม</td></tr>
+        </tbody>
+      </table>
+      <p class="small" data-i18n="mNote">* สแกนถุงต้องมีเลข LCSC หรือ MPN ใน BOM — ถ้าไม่มี ยังพิมพ์ Ref / Value หาได้</p>
+
+      <details class="howto">
+        <summary data-i18n="howto">หาไฟล์พวกนี้จากไหน? (KiCad / EasyEDA / Altium)</summary>
+        <div data-i18n-html="howtoBody">
+          <p><b>KiCad</b> — <i>.kicad_pcb</i> อยู่ในโฟลเดอร์โปรเจกต์ · Gerber: <i>File → Fabrication Outputs → Gerbers (.gbr)</i> + <i>Generate Drill Files</i> แล้ว zip รวม · BOM + CPL: ปลั๊กอิน <i>Fabrication Toolkit</i> (JLCPCB) หรือ <i>File → Fabrication Outputs → Component Placement (.csv)</i></p>
+          <p><b>EasyEDA</b> — <i>Fabrication → PCB Fabrication File (Gerber)</i> · <i>Fabrication → BOM</i> · <i>Fabrication → Pick and Place File</i> (CPL)</p>
+          <p><b>Altium</b> — <i>Gerber Files</i> + <i>NC Drill Files</i> (zip) · <i>Bill of Materials</i> · <i>Pick and Place Files</i></p>
+          <p>💡 ใช้ไฟล์ชุดเดียวกับที่อัปโหลดสั่ง PCBA ที่ JLCPCB ได้เลย — ตำแหน่ง CPL จะถูกจัดให้ตรงกับ Gerber อัตโนมัติ</p>
+        </div>
+      </details>
+
+      <div class="modal-foot">
+        <span class="small" data-i18n="dropHere">ลากหลายไฟล์มาวางในหน้าต่างนี้ได้เลย ระบบจัดเข้าช่องให้เอง</span>
+        <span class="grow"></span>
+        <button class="btn ghost" data-close data-i18n="cancel">ยกเลิก</button>
+        <button class="btn primary" id="btnLoadSlots" data-i18n="loadBoard">เปิดบอร์ด</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- what's new -->
+  <div class="modal hide" id="newsModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div><div class="kicker" data-i18n="whatsNew">มีอะไรใหม่</div><h2 id="newsTitle">TESR BOM Viewer</h2></div>
+        <button class="btn ghost icon" data-close>✕</button>
+      </div>
+      <div id="newsBody"></div>
+    </div>
+  </div>
+
+  <div class="dropzone hide" id="dropzone"><div><b data-i18n="dropTitle">วางไฟล์ที่นี่</b><span>.kicad_pcb · BOM · CPL · Gerber .zip</span></div></div>
 
   <script type="module" src="js/app.js"></script>
 </body>

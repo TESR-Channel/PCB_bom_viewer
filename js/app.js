@@ -1,6 +1,7 @@
 // TESR BOM Viewer — main application
 // Made by TESR — Thai Embedded System and Robotics · https://www.tesrshop.com
-import { parseKicadPcb, buildBom, readTableCsv, mergeBomCsv, boardFromCsv, refCompare } from './kicad.js';
+import { parseKicadPcb, buildBom, readTableCsv, readTable, mergeBomCsv, refCompare } from './kicad.js';
+import { VERSION, BUILD_DATE, CHANGELOG } from './version.js';
 import { parseLabel, matchGroups, CameraScanner, decodeFile, beep } from './scan.js';
 import { Board2D } from './view2d.js';
 import { t, setLang } from './i18n.js';
@@ -66,39 +67,97 @@ function syncViews() {
 }
 
 // ---------------------------------------------------------------- loading ----
-async function readFile(f) { return { name: f.name, text: await f.text() }; }
+// files are classified by content / extension:
+//   .kicad_pcb → full board · BOM .csv/.xlsx → parts list · CPL .csv/.xlsx → positions · Gerber .zip / loose gerbers → board picture
+const GERBER_EXT = /\.(gbr|ger|pho|art|gtl|gbl|gts|gbs|gto|gbo|gtp|gbp|gm\d*|gko|gml|drl|xln|exc|nc|g\d+)$/i;
+
+async function classify(f) {
+  const n = f.name;
+  if (/\.kicad_pcb$/i.test(n)) return { kind: 'pcb', name: n, text: await f.text() };
+  if (/\.zip$/i.test(n)) {
+    const { readGerberZip } = await import('./gerber.js');
+    return { kind: 'gerber', name: n, gerber: readGerberZip(await f.arrayBuffer()) };
+  }
+  if (/\.xlsx$/i.test(n)) {
+    const { readXlsx } = await import('./xlsx.js');
+    const tbl = readTable(readXlsx(await f.arrayBuffer()));
+    return { kind: tbl.kind, name: n, rows: tbl.rows };
+  }
+  if (GERBER_EXT.test(n)) return { kind: 'gerberFile', name: n, text: await f.text() };
+  const text = await f.text();
+  if (/^\s*\(kicad_pcb/.test(text)) return { kind: 'pcb', name: n, text };
+  if (/^%|^G04|^M48/m.test(text.slice(0, 200))) return { kind: 'gerberFile', name: n, text };
+  const tbl = readTableCsv(text);
+  return { kind: tbl.kind, name: n, rows: tbl.rows };
+}
+
+// fabrication set collected across drops (BOM, CPL and Gerber can arrive one by one)
+S.fab = { bom: null, cpl: null, gerber: null, names: {} };
 
 async function loadFiles(files) {
-  const items = await Promise.all([...files].map(readFile));
-  const pcb = items.find((i) => /\.kicad_pcb$/i.test(i.name) || /^\s*\(kicad_pcb/.test(i.text));
-  const csvs = items.filter((i) => i !== pcb);
-  let bomRows = null, cplRows = null, bomName = '';
-  for (const c of csvs) {
-    try {
-      const r = readTableCsv(c.text);
-      if (r.kind === 'cpl') cplRows = r.rows; else { bomRows = r.rows; bomName = c.name; }
-    } catch (e) { toast(`${c.name}: ${e.message}`, true); }
+  const items = [];
+  for (const f of files) {
+    try { items.push(await classify(f)); } catch (e) { toast(`${f.name}: ${e.message}`, true); }
   }
-  let board = null;
+  const pcb = items.find((i) => i.kind === 'pcb');
+  const bom = items.find((i) => i.kind === 'bom');
+  const cpl = items.find((i) => i.kind === 'cpl');
+  let gerber = items.find((i) => i.kind === 'gerber');
+  const loose = items.filter((i) => i.kind === 'gerberFile');
+  if (!gerber && loose.length) {
+    const { readGerberFiles } = await import('./gerber.js');
+    gerber = { kind: 'gerber', name: `${loose.length} Gerber files`, gerber: readGerberFiles(loose) };
+  }
   if (pcb) {
+    let board;
     try { board = parseKicadPcb(pcb.text, pcb.name); } catch (e) { toast(`${pcb.name}: ${e.message}`, true); return; }
-  } else if (bomRows && !S.board) {
-    board = boardFromCsv(bomRows, cplRows, bomName);
-    bomRows = null;
-  } else if (bomRows && S.board) {
-    const n = mergeBomCsv(S.board, bomRows);
+    S.fab = { bom: null, cpl: null, gerber: null, names: {} };
+    const merged = bom ? mergeBomCsv(board, bom.rows) : 0;
+    board.source = { pcb: pcb.name, bom: bom?.name };
+    setBoard(board);
+    toast(`${t('loaded')}: ${board.title}${merged ? ` · ${t('merged')} (${merged})` : ''}`);
+    return;
+  }
+  if (!bom && !cpl && !gerber) return;
+  // a BOM dropped onto a KiCad board only adds LCSC / MPN
+  if (S.board && !S.board.fab && !S.board.csvOnly && bom && !cpl && !gerber) {
+    const n = mergeBomCsv(S.board, bom.rows);
     setBoard(S.board, true);
     toast(`${t('merged')} · ${n} ${t('refsMerged')}`);
     return;
   }
-  if (!board) return;
-  let merged = 0;
-  if (bomRows) merged = mergeBomCsv(board, bomRows);
-  setBoard(board);
-  toast(`${t('loaded')}: ${board.title}${merged ? ` · ${t('merged')} (${merged})` : ''}`);
+  if (bom) { S.fab.bom = bom.rows; S.fab.names.bom = bom.name; }
+  if (cpl) { S.fab.cpl = cpl.rows; S.fab.names.cpl = cpl.name; }
+  if (gerber) { S.fab.gerber = gerber.gerber; S.fab.names.gerber = gerber.name; }
+  const { boardFromFab } = await import('./gerber.js');
+  const title = (S.fab.names.bom || S.fab.names.cpl || S.fab.names.gerber || 'Board')
+    .replace(/\.(csv|xlsx|zip|txt)$/i, '').replace(/^(BOM|CPL|Gerber)[_ -]?/i, '').replace(/[_ -]?(JLCPCB|BOM|CPL)$/i, '') || 'Board';
+  const board = boardFromFab(S.fab.bom, S.fab.cpl, S.fab.gerber, title);
+  board.source = { ...S.fab.names };
+  setBoard(board, S.board?.fab && S.board.title === board.title);
+  const have = ['bom', 'cpl', 'gerber'].filter((k) => S.fab[k]);
+  toast(`${t('loaded')}: ${have.map((k) => k.toUpperCase()).join(' + ')}${have.length < 3 ? ' · ' + t('addMore') : ''}`);
 }
 
-async function loadDemo() {
+async function fetchFile(url, name) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
+  return new File([await r.blob()], name);
+}
+
+async function loadDemo(kind = 'kicad') {
+  if (kind === 'jlc') {
+    S.fab = { bom: null, cpl: null, gerber: null, names: {} };
+    S.board = null;
+    const files = await Promise.all([
+      fetchFile('demo/jlcpcb/BOM_TESR_Pincer_V2_JLCPCB.csv', 'BOM_TESR_Pincer_V2_JLCPCB.csv'),
+      fetchFile('demo/jlcpcb/CPL_TESR_Pincer_V2_JLCPCB.csv', 'CPL_TESR_Pincer_V2_JLCPCB.csv'),
+      fetchFile('demo/jlcpcb/Gerber_TESR_Pincer_V2.zip', 'Gerber_TESR_Pincer_V2.zip'),
+    ]);
+    await loadFiles(files);
+    if (S.board) { S.board.title = 'TESR Pincer V2.0 (JLCPCB files)'; setBoard(S.board, true); }
+    return;
+  }
   const [pcb, bom] = await Promise.all([
     fetch('demo/TESR_Pincer_V2.kicad_pcb').then((r) => r.text()),
     fetch('demo/BOM_TESR_Pincer_V2_JLCPCB.csv').then((r) => r.text()),
@@ -107,6 +166,8 @@ async function loadDemo() {
   board.title = 'TESR Pincer V2.0';
   board.rev = board.rev || 'A';
   mergeBomCsv(board, readTableCsv(bom).rows);
+  board.source = { pcb: 'TESR_Pincer_V2.kicad_pcb', bom: 'BOM_TESR_Pincer_V2_JLCPCB.csv' };
+  S.fab = { bom: null, cpl: null, gerber: null, names: {} };
   setBoard(board);
   toast(`${t('loaded')}: TESR Pincer V2.0`);
 }
@@ -129,11 +190,13 @@ function setBoard(board, keepState = false) {
   $('#boardTitle').textContent = board.title + (board.rev ? `  ·  Rev ${board.rev}` : '');
   const nParts = S.bom.reduce((a, g) => a + (g.dnp ? 0 : g.refs.length), 0);
   const w = board.bounds ? (board.bounds[2] - board.bounds[0]).toFixed(1) : '—', h = board.bounds ? (board.bounds[3] - board.bounds[1]).toFixed(1) : '—';
-  $('#boardSub').textContent = `${board.fileName} · ${S.bom.length} ${t('lines')} · ${nParts} ${t('parts')} · ${w} × ${h} mm` + (board.date ? ` · ${board.date}` : '');
+  const src = board.source ? Object.values(board.source).filter(Boolean).join(' + ') : board.fileName;
+  $('#boardSub').textContent = `${src} · ${S.bom.length} ${t('lines')} · ${nParts} ${t('parts')}${board.bounds ? ` · ${w} × ${h} mm` : ''}` + (board.date ? ` · ${board.date}` : '');
   $('#emptyTable').classList.add('hide');
   v2.showRefs = opts.refs;
   v2.setTheme(opts.mask);
   v2.setBoard(board.outline ? board : null);
+  $('#boardHint').classList.toggle('hide', !!board.outline);
   if (v3) v3.setBoard(board);
   renderTable();
   renderDetail();
@@ -438,7 +501,6 @@ $('#btnHidePlaced').addEventListener('click', (e) => {
   e.currentTarget.textContent = S.hidePlaced ? t('showAll') : t('hidePlaced');
   renderTable();
 });
-$('#fileInput').addEventListener('change', (e) => { if (e.target.files.length) loadFiles(e.target.files); e.target.value = ''; });
 $('#btnDemo').addEventListener('click', () => loadDemo().catch((err) => toast(err.message, true)));
 
 // settings
@@ -481,10 +543,103 @@ $('#btnExport').addEventListener('click', () => {
 // drag & drop anywhere
 const dz = $('#dropzone');
 let dragDepth = 0;
-window.addEventListener('dragenter', (e) => { if ([...e.dataTransfer.types].includes('Files')) { dragDepth++; dz.classList.remove('hide'); } });
+window.addEventListener('dragenter', (e) => { if ([...e.dataTransfer.types].includes('Files') && $('#openModal').classList.contains('hide')) { dragDepth++; dz.classList.remove('hide'); } });
 window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; dz.classList.add('hide'); } });
 window.addEventListener('dragover', (e) => e.preventDefault());
-window.addEventListener('drop', (e) => { e.preventDefault(); dragDepth = 0; dz.classList.add('hide'); if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files); });
+window.addEventListener('drop', (e) => { e.preventDefault(); dragDepth = 0; dz.classList.add('hide'); if (e.dataTransfer.files.length) loadFiles([...e.dataTransfer.files]); });
+
+
+// ------------------------------------------------------- open-files guide ----
+const openModal = $('#openModal');
+const slots = { pcb: null, bomA: null, bom: null, cpl: null, gerber: null };
+
+function renderSlots() {
+  for (const el of openModal.querySelectorAll('.slot')) {
+    const k = el.dataset.slot, v = slots[k];
+    const em = el.querySelector('.slot-file');
+    el.classList.toggle('filled', !!(v && (!Array.isArray(v) || v.length)));
+    em.textContent = v ? (Array.isArray(v) ? (v.length === 1 ? v[0].name : `${v.length} files`) : v.name) : t('notChosen');
+  }
+}
+function openFiles() { renderSlots(); openModal.classList.remove('hide'); }
+for (const el of openModal.querySelectorAll('.slot')) {
+  const inp = el.querySelector('input');
+  inp.addEventListener('change', () => {
+    if (!inp.files.length) return;
+    slots[el.dataset.slot] = el.dataset.slot === 'gerber' ? [...inp.files] : inp.files[0];
+    if (el.dataset.slot === 'pcb' || el.dataset.slot === 'bomA') { slots.bom = slots.cpl = slots.gerber = null; }
+    else { slots.pcb = slots.bomA = null; }
+    inp.value = '';
+    renderSlots();
+  });
+  el.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('over'); });
+  el.addEventListener('dragleave', () => el.classList.remove('over'));
+  el.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation(); el.classList.remove('over');
+    const fs = [...e.dataTransfer.files]; if (!fs.length) return;
+    slots[el.dataset.slot] = el.dataset.slot === 'gerber' ? fs : fs[0];
+    renderSlots();
+  });
+}
+// drop several files on the dialog → sort them into slots
+async function sortIntoSlots(files) {
+  const rest = [];
+  for (const f of files) {
+    if (/\.kicad_pcb$/i.test(f.name)) { slots.pcb = f; continue; }
+    if (/\.zip$/i.test(f.name) || GERBER_EXT.test(f.name)) { slots.gerber = [...(slots.gerber || []), f]; continue; }
+    rest.push(f);
+  }
+  for (const f of rest) {
+    try {
+      const c = await classify(f);
+      if (c.kind === 'cpl') slots.cpl = f;
+      else if (slots.pcb) slots.bomA = f;
+      else slots.bom = f;
+    } catch { /* not a table */ }
+  }
+  if (slots.pcb) { slots.bom = slots.cpl = null; slots.gerber = null; }
+  renderSlots();
+}
+openModal.addEventListener('dragover', (e) => e.preventDefault());
+openModal.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); dragDepth = 0; dz.classList.add('hide'); sortIntoSlots([...e.dataTransfer.files]); });
+$('#btnLoadSlots').addEventListener('click', async () => {
+  let files = [];
+  if (slots.pcb) files = [slots.pcb, slots.bomA].filter(Boolean);
+  else {
+    files = [slots.bom, slots.cpl, ...(slots.gerber || [])].filter(Boolean);
+    S.fab = { bom: null, cpl: null, gerber: null, names: {} };
+    if (files.length) S.board = null;
+  }
+  if (!files.length) { toast(t('pickFirst'), true); return; }
+  openModal.classList.add('hide');
+  await loadFiles(files);
+  for (const k of Object.keys(slots)) slots[k] = null;
+});
+for (const b of openModal.querySelectorAll('[data-demo]')) b.addEventListener('click', () => { openModal.classList.add('hide'); loadDemo(b.dataset.demo).catch((err) => toast(err.message, true)); });
+$('#btnOpen').addEventListener('click', openFiles);
+$('#btnOpen2').addEventListener('click', openFiles);
+$('#btnDemo2').addEventListener('click', () => loadDemo().catch((err) => toast(err.message, true)));
+
+// ------------------------------------------------------- version / news ----
+const newsModal = $('#newsModal');
+const SEEN_KEY = 'tesr-bomv-seen';
+function renderNews() {
+  $('#newsTitle').textContent = `TESR BOM Viewer v${VERSION}`;
+  $('#newsBody').innerHTML = CHANGELOG.map((c) => `<div class="news-item"><div class="news-v"><b>v${c.v}</b><span>${c.date}</span></div><ul>${(c[opts.lang] || c.en).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`).join('');
+}
+function openNews() { renderNews(); newsModal.classList.remove('hide'); localStorageSet(SEEN_KEY, VERSION); $('#verBadge').classList.remove('new'); }
+$('#verBadge').textContent = `v${VERSION}`;
+$('#verBadge').title = `TESR BOM Viewer v${VERSION} · ${BUILD_DATE}`;
+$('#footVer').textContent = `TESR BOM Viewer v${VERSION}`;
+if (localStorageGet(SEEN_KEY) !== VERSION) $('#verBadge').classList.add('new');
+$('#verBadge').addEventListener('click', openNews);
+$('#footVer').addEventListener('click', (e) => { e.preventDefault(); openNews(); });
+document.title = `TESR BOM Viewer v${VERSION}`;
+
+for (const m of [openModal, newsModal]) {
+  m.addEventListener('click', (e) => { if (e.target === m || e.target.closest('[data-close]')) m.classList.add('hide'); });
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { openModal.classList.add('hide'); newsModal.classList.add('hide'); } });
 
 // toast
 let toastTimer = null;
@@ -501,11 +656,13 @@ function applyLang() {
   setLang(opts.lang);
   $('#btnCam').textContent = camOn ? t('stopCam') : t('startCam');
   $('#btnHidePlaced').textContent = S.hidePlaced ? t('showAll') : t('hidePlaced');
+  renderSlots();
+  if (!newsModal.classList.contains('hide')) renderNews();
   if (S.board) setBoard(S.board, true);
 }
 
 // ------------------------------------------------------------------- boot ----
 applyLang();
 const params = new URLSearchParams(location.search);
-if (params.has('demo')) loadDemo().catch((err) => toast(err.message, true));
-window.TESRBOM = { S, handleCode, loadDemo, select, setSide, refCompare }; // for testing / console use
+if (params.has('demo')) loadDemo(params.get('demo') === 'jlc' ? 'jlc' : 'kicad').catch((err) => toast(err.message, true));
+window.TESRBOM = { S, handleCode, loadDemo, loadFiles, select, setSide, refCompare, VERSION }; // for testing / console use
