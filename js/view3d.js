@@ -3,8 +3,8 @@
 // Made by TESR — Thai Embedded System and Robotics
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
-import { paintSide, THEMES } from './paint.js?b=20261106b';
-import { buildPart } from './parts3d.js?b=20261106b';
+import { paintSide, paintOverlays, THEMES } from './paint.js?b=20261106c';
+import { buildPart } from './parts3d.js?b=20261106c';
 
 export class Board3D {
   constructor(host, { onPick, onHover } = {}) {
@@ -34,6 +34,7 @@ export class Board3D {
     this.selected = new Set();
     this.placed = new Set();
     this.theme = 'black';
+    this.vis = null;
     this.ray = new THREE.Raycaster();
     this.fx = new THREE.Group();
     this.scene.add(this.fx);
@@ -83,6 +84,14 @@ export class Board3D {
     this.camera.updateProjectionMatrix();
   }
 
+  /** layer + object visibility (layers.js) — repaints the board surfaces, pads and parts */
+  setLayers(vis) {
+    this.vis = { ...vis };
+    if (this.board) this.setBoard(this.board, true);
+  }
+
+  _on(id) { return !this.vis || this.vis[id] !== false; }
+
   setTheme(t) {
     this.theme = t;
     if (this.board) this.setBoard(this.board, true);
@@ -97,7 +106,11 @@ export class Board3D {
     const c = document.createElement('canvas');
     c.width = Math.ceil(W * ppm); c.height = Math.ceil(H * ppm);
     const ctx = c.getContext('2d');
-    try { paintSide(ctx, b, side, (x, y) => [(x - x0) * ppm, (y - y0) * ppm], ppm, this.theme, { mirrorView: false }); }
+    const tf = (x, y) => [(x - x0) * ppm, (y - y0) * ppm];
+    try {
+      paintSide(ctx, b, side, tf, ppm, this.theme, { mirrorView: false, vis: this.vis });
+      paintOverlays(ctx, b, side, tf, ppm, this.vis, false);
+    }
     catch (e) { console.warn('[TESR 3D] paint', side, e); }
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -110,7 +123,10 @@ export class Board3D {
 
   setBoard(board, keepCamera = false) {
     this.board = board;
-    for (const c of [...this.group.children]) { this.group.remove(c); c.traverse?.((o) => o.geometry?.dispose?.()); }
+    for (const c of [...this.group.children]) {
+      this.group.remove(c);
+      c.traverse?.((o) => { o.geometry?.dispose?.(); for (const m of [].concat(o.material || [])) { m.map?.dispose?.(); } });
+    }
     this.parts.clear(); this.pickables = [];
     if (!board?.outline) return;
     const [x0, y0, x1, y1] = board.bounds;
@@ -149,8 +165,8 @@ export class Board3D {
     const padMat = new THREE.MeshStandardMaterial({ color: 0xe0c070, metalness: 0.9, roughness: 0.28 });
     const items = [];
     for (const fp of board.footprints) for (const pd of fp.pads) {
-      if (pd.front) items.push([pd, 'F']);
-      if (pd.back) items.push([pd, 'B']);
+      if (pd.front && this._on('F.Cu') && this._on('pads')) items.push([pd, 'F']);
+      if (pd.back && this._on('B.Cu') && this._on('pads')) items.push([pd, 'B']);
     }
     const mk = (geo, list) => {
       if (!list.length) return;
@@ -180,7 +196,7 @@ export class Board3D {
     }
 
     // ---- components ----
-    for (const fp of board.footprints) {
+    if (this._on('parts')) for (const fp of board.footprints) {
       if (!fp.ref || !isFinite(fp.x)) continue;
       let part = null;
       try { part = buildPart(fp); } catch (e) { console.warn('[TESR 3D] part', fp.ref, e); }

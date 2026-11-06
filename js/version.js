@@ -1,8 +1,27 @@
 // TESR BOM Viewer — version + change log (shown in the app header / "What's new")
-export const VERSION = '1.20';
+export const VERSION = '1.30';
 export const BUILD_DATE = '2026-11-06';
 
 export const CHANGELOG = [
+  {
+    v: '1.30', date: '2026-11-06',
+    th: [
+      'แผง "เลเยอร์" (ปุ่ม ≡ เลเยอร์ หรือกด L): เปิด/ปิดทีละเลเยอร์ — ทองแดงบน / ล่าง / ชั้นใน, ซิลค์สกรีน, โซลเดอร์มาสก์, ครีมตะกั่ว (Paste), Fab, Courtyard, ขอบบอร์ด (Edge.Cuts), รูเจาะ, เลเยอร์ผู้ใช้',
+      'โหมดแสดงผล 2 แบบ: "สมจริง" (เหมือนบอร์ดจริง ปิดมาสก์แล้วเห็นทองแดง/FR-4) และ "สีเลเยอร์ (CAD)" แบบ KiCad / Gerber viewer',
+      'ชุดมุมมองสำเร็จรูป: งานประกอบ · ทั้งหมด · ด้านบน · ด้านล่าง · ทองแดง · ซิลค์สกรีน · มาสก์ + Paste · กลไก',
+      'เลือกเลเยอร์ + High contrast, ดับเบิลคลิกเพื่อดูเลเยอร์เดียว, ปรับความทึบ, ตัวกรองวัตถุ (Pad / Via / Track / Zone / ตัวหนังสือ / ชิ้นส่วน / Ref)',
+      'บอร์ด 3D ปิด/เปิดเลเยอร์และชิ้นส่วนได้เหมือน 2D · แสดงพิกัด X / Y (mm) ใต้เมาส์',
+      'อ่าน Gerber ทุกเลเยอร์รวมถึง polarity (LPC) และทองแดงชั้นใน · รูเจาะแยก PTH / NPTH / Via',
+    ],
+    en: [
+      '"Layers" panel (Layers button or press L): show / hide each layer — top / bottom / inner copper, silkscreen, solder mask, paste, fab, courtyard, board outline (Edge.Cuts), drills, user layers',
+      'Two looks: "Realistic" (like the real board; hide the mask to see bare copper / FR-4) and "Layer colours (CAD)" like KiCad / a Gerber viewer',
+      'Presets: Assembly · All · Top · Bottom · Copper · Silkscreen · Mask + paste · Mechanical',
+      'Select a layer + high contrast, double-click to show one layer only, opacity slider, object filters (pads / vias / tracks / zones / texts / components / refs)',
+      '3D board follows the layer and component switches · cursor X / Y (mm) readout',
+      'Every Gerber layer is read incl. clear polarity (LPC) and inner copper · drills split into PTH / NPTH / via',
+    ],
+  },
   {
     v: '1.20', date: '2026-11-06',
     th: [

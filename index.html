@@ -7,7 +7,7 @@
   <meta name="description" content="TESR BOM Viewer — scan LCSC / DigiKey / Mouser bag labels and find where every part goes on your KiCad board. 100% offline in the browser. Made by TESR.">
   <meta name="theme-color" content="#0B0B0D">
   <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="css/style.css?b=20261106b">
+  <link rel="stylesheet" href="css/style.css?b=20261106c">
   <script type="importmap">
     { "imports": {
         "three": "./vendor/three/three.module.min.js",
@@ -94,6 +94,10 @@
           <button data-v="iso">45°</button><button data-v="top">TOP</button><button data-v="front">FRONT</button><button data-v="bottom">BOTTOM</button>
         </div>
         <span class="grow"></span>
+        <button class="btn ghost small layers-btn" id="btnLayers" title="Layers (L)" aria-expanded="false" aria-controls="layerPanel">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m2 12.5 10 5 10-5M2 17l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          <span data-i18n="layersBtn">เลเยอร์</span>
+        </button>
         <button class="btn ghost small" id="btnFit" title="Fit (double-click)">⤢</button>
       </div>
       <div class="board-host" id="boardHost">
@@ -102,6 +106,24 @@
         <div class="board-hint hide" id="boardHint"><b data-i18n="noPos">ยังไม่มีตำแหน่งชิ้นส่วน</b><span data-i18n="noPosSub">เพิ่มไฟล์ CPL (+ Gerber) เพื่อดูบนบอร์ด</span></div>
         <div class="board-hint err3d hide" id="err3d"><b data-i18n="err3d">เปิดภาพ 3D ไม่ได้</b><span data-i18n="err3dSub">กด Ctrl + F5 (Mac: Cmd + Shift + R) เพื่อโหลดใหม่ · ถ้ายังไม่ได้ ให้เปิด Hardware acceleration / WebGL ในเบราว์เซอร์</span><code id="err3dMsg"></code></div>
         <div class="tip" id="tip"></div>
+        <div class="coord hide" id="coordBox"></div>
+        <aside class="layer-panel hide" id="layerPanel" aria-label="Layers">
+          <div class="lp-head">
+            <b data-i18n="layersTitle">เลเยอร์ PCB</b>
+            <button class="lp-x" id="lpClose" aria-label="Close">✕</button>
+          </div>
+          <div class="seg lp-style" id="lpStyle">
+            <button data-style="real" data-i18n="styleReal">สมจริง</button><button data-style="cad" data-i18n="styleCad">สีเลเยอร์ (CAD)</button>
+          </div>
+          <div class="lp-note hide" id="lpNote3d" data-i18n="lpNote3d">3D แสดงแบบสมจริงเสมอ — ปิด/เปิดเลเยอร์ได้เหมือน 2D</div>
+          <div class="lp-presets" id="lpPresets"></div>
+          <div class="lp-body" id="lpBody"></div>
+          <div class="lp-foot">
+            <label class="lp-op"><span data-i18n="lpOpacity">ความทึบเลเยอร์</span><input type="range" id="lpOpacity" min="0.3" max="1" step="0.05"></label>
+            <label class="lp-chk"><input type="checkbox" id="lpContrast"> <span data-i18n="lpContrast">เน้นเลเยอร์ที่เลือก (High contrast)</span></label>
+            <div class="lp-hint" data-i18n-html="lpHint">คลิก ● เปิด/ปิด · คลิกชื่อ = เลือกเลเยอร์ · ดับเบิลคลิก = ดูเลเยอร์นี้อย่างเดียว · กด <kbd>L</kbd> เปิด/ปิดแผงนี้</div>
+          </div>
+        </aside>
         <div class="toast" id="toast"></div>
       </div>
     </section>
@@ -284,6 +306,6 @@
 
   <div class="dropzone hide" id="dropzone"><div><b data-i18n="dropTitle">วางไฟล์ที่นี่</b><span>.kicad_pcb · BOM · CPL · Gerber .zip</span></div></div>
 
-  <script type="module" src="js/app.js?b=20261106b"></script>
+  <script type="module" src="js/app.js?b=20261106c"></script>
 </body>
 </html>

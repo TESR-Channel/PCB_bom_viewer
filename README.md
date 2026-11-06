@@ -2,7 +2,7 @@
   <a href="https://www.tesrshop.com"><img src="assets/tesr_logo.png" width="110" alt="TESR"></a>
 </p>
 
-<h1 align="center">TESR BOM Viewer <sub>v1.20</sub></h1>
+<h1 align="center">TESR BOM Viewer <sub>v1.30</sub></h1>
 <p align="center"><b>จากถุงอะไหล่ → ตำแหน่งบนบอร์ด</b> · From the bag to the board</p>
 
 <p align="center">
@@ -26,6 +26,7 @@
 | 📷 **สแกน** | QR (LCSC / JLCPCB), DataMatrix ECIA (DigiKey / Mouser / Arrow), Code128 / 1D (`1P…`, `P…`) ผ่านเว็บแคม กล้องมือถือ หรือรูปถ่าย |
 | ⌨️ **พิมพ์ / ยิงบาร์โค้ด** | พิมพ์ LCSC (`C8734`), MPN, Ref (`R25`), Value (`10k`) · รองรับเครื่องยิงบาร์โค้ด USB โดยไม่ต้องคลิกช่อง |
 | 🖱️ **คลิกเลือก** | ตาราง BOM ↔ บอร์ด 2D (บน / ล่าง / สองด้าน) ↔ บอร์ด 3D (หมุน ซูม คลิกชิ้นส่วน) ซิงค์กันทั้งหมด |
+| 🗂️ **ดูเลเยอร์** | แผงเลเยอร์ (กด `L`): เปิด/ปิด ทองแดงบน/ล่าง/ชั้นใน, ซิลค์สกรีน, โซลเดอร์มาสก์, Paste, Fab, Courtyard, Edge.Cuts, รูเจาะ, เลเยอร์ผู้ใช้ · โหมด **สมจริง** / **สีเลเยอร์ (CAD)** · ชุดมุมมอง ด้านบน / ด้านล่าง / ทองแดง / กลไก ฯลฯ · ดับเบิลคลิกดูเลเยอร์เดียว · High contrast · ใช้กับ 2D และ 3D |
 | ✅ **เช็กลิสต์** | ติ๊ก "หยิบแล้ว" / "วางแล้ว" รายชิ้น · แถบความคืบหน้า · บันทึกอัตโนมัติในเครื่อง · Export `.csv` |
 | 🎨 **ธีม TESR** | ดำ / แดงเข้ม / ทอง · ภาษาไทย / English · PCB สีดำ / เขียว / ขาว |
 
@@ -66,7 +67,7 @@
 3. กด **เปิดกล้อง** แล้วส่องฉลากถุง → ชิ้นที่ต้องวางจะกะพริบสีแดงบนบอร์ด
 4. วางเสร็จ คลิก Ref (เช่น `R25`) ในกล่อง "รายการที่เลือก" หรือคลิกชิ้นนั้นบนบอร์ดอีกครั้ง เพื่อติ๊กว่าวางแล้ว
 
-**คีย์ลัด**: `↑ / ↓` เลือกแถว · `Space` วางชิ้นถัดไปของแถว · `/` ไปช่องรหัส · `Esc` ยกเลิกเลือก
+**คีย์ลัด**: `↑ / ↓` เลือกแถว · `Space` วางชิ้นถัดไปของแถว · `/` ไปช่องรหัส · `L` แผงเลเยอร์ · `Esc` ยกเลิกเลือก
 
 > กล้องต้องใช้ HTTPS หรือ `localhost` — บน GitHub Pages ใช้ได้ทันที
 > ใช้งานแบบออฟไลน์: ดาวน์โหลด repo แล้วรัน `python3 -m http.server` ในโฟลเดอร์ จากนั้นเปิด `http://localhost:8000`
@@ -92,6 +93,8 @@ js/version.js       version number + change log
 js/scan.js          label parsing (LCSC / ECIA / 1D), matching, camera + decoder
 js/view2d.js        2D canvas board view
 js/view3d.js        3D board view (three.js)
+js/layers.js        PCB layer model: layer list, colours, stacking order, presets
+js/paint.js         board painter: realistic look, technical overlays, CAD layer colours
 vendor/             three.js r169, zxing-wasm 2.2.4, fflate 0.8.2 (bundled for offline use)
 demo/               TESR Pincer V2: KiCad board + BOM, and demo/jlcpcb/ BOM + CPL + Gerber
 ```

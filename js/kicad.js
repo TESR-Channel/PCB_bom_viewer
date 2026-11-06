@@ -1,5 +1,6 @@
 // TESR BOM Viewer — KiCad .kicad_pcb parser (KiCad 6 / 7 / 8 / 9)
 // Made by TESR — Thai Embedded System and Robotics
+import { gfxLayer, canon } from './layers.js?b=20261106c';
 
 /** Tokenise + parse an S-expression into nested arrays. Strings stay strings, atoms stay strings. */
 export function parseSexpr(text) {
@@ -262,6 +263,34 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
     }
   }
 
+  // ---- layer table: copper stack + user names ----
+  const cuLayers = [], layerNames = {};
+  for (const l of (kid(tree, 'layers') || []).slice(1)) {
+    if (!Array.isArray(l)) continue;
+    const id = str(l[1]), type = str(l[2]);
+    if (/^(signal|power|mixed|jumper)$/.test(type)) cuLayers.push(id);
+    if (l[3] != null && str(l[3])) layerNames[canon(id)] = str(l[3]);
+  }
+  if (!cuLayers.length) cuLayers.push('F.Cu', 'B.Cu');
+  const expandLayer = (l) => {
+    if (l === '*.Cu') return cuLayers;
+    if (l === 'F&B.Cu') return ['F.Cu', 'B.Cu'];
+    if (l.startsWith('*.')) return ['F' + l.slice(1), 'B' + l.slice(1)];
+    return [l];
+  };
+
+  // ---- every graphic item, per layer (for the layer viewer) ----
+  const gfx = {};
+  const addShape = (ly, polys, w, fill, k = 'gfx') => {
+    if (!ly) return;
+    const g = gfxLayer(gfx, ly);
+    for (const pl of polys) {
+      if (pl.length < 2) continue;
+      if (fill) { g.f.push({ pts: pl, k }); if (w > 0) g.s.push({ pts: pl, w, k }); }
+      else g.s.push({ pts: pl, w: w || 0.1, k });
+    }
+  };
+
   // ---- silkscreen / copper collections (board coordinates) ----
   const silk = { F: [], B: [] }, texts = { F: [], B: [] };
   const copper = { F: { tracks: [], zones: [] }, B: { tracks: [], zones: [] } }, vias = [];
@@ -295,14 +324,16 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
     }
     for (const t of [...kids(n, 'fp_text'), ...kids(n, 'property')]) {
       const ly = layerOf(t);
-      if (!/SilkS$/.test(ly) || isHidden(t)) continue;
+      if (!ly || isHidden(t)) continue;
       const tat = kid(t, 'at');
       if (!tat) continue;
       let txt = str(t[0] === 'fp_text' ? t[2] : t[2]);
       txt = txt.replace(/\$\{REFERENCE\}/g, fp.ref).replace(/\$\{VALUE\}/g, fp.value);
       if (!txt) continue;
       const [wx, wy] = fpTransform(fp, num(tat[1]), num(tat[2]));
-      texts[ly.startsWith('B') ? 'B' : 'F'].push(textInfo(t, txt, wx, wy, tat[3] != null ? num(tat[3]) : 0));
+      const ti = textInfo(t, txt, wx, wy, tat[3] != null ? num(tat[3]) : 0);
+      gfxLayer(gfx, ly).t.push(ti);
+      if (/SilkS$/.test(ly)) texts[ly.startsWith('B') ? 'B' : 'F'].push(ti);
     }
     const attr = kid(n, 'attr');
     if (attr) for (const a of attr.slice(1)) fp.attr[str(a)] = true;
@@ -311,6 +342,7 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
       if (!Array.isArray(g) || !/^fp_(line|rect|circle|arc|poly|curve)$/.test(g[0])) continue;
       const ly = layerOf(g);
       const polys = shapeToPolylines(g);
+      addShape(ly, polys.map((pl) => pl.map(([x, y]) => fpTransform(fp, x, y))), strokeWidth(g, 0.1), isFilled(g));
       if (/SilkS$/.test(ly)) {
         fp.silk.push(...polys);
         const side = ly.startsWith('B') ? 'B' : 'F', w = strokeWidth(g), fill = isFilled(g);
@@ -344,6 +376,10 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
       };
       if (version && version < 20211014 && pat && pat[3] != null) pad.rot = num(pat[3]); // KiCad 5: already absolute
       fp.pads.push(pad);
+      const rr = kid(p, 'roundrect_rratio');
+      const flash = { x: wx, y: wy, w: pad.w, h: pad.h, shape: pad.shape, rot: pad.rot, rr: rr ? num(rr[1]) : 0.25, k: 'pad' };
+      for (const l of new Set(ly.flatMap(expandLayer))) gfxLayer(gfx, l).p.push(flash);
+      if (dr) gfxLayer(gfx, 'Drill').p.push({ x: wx, y: wy, w: dr[0], h: dr[1], shape: Math.abs(dr[0] - dr[1]) < 1e-3 ? 'circle' : 'oval', rot: pad.rot, k: pad.type === 'np_thru_hole' ? 'npth' : 'pth' });
     }
     // body: fab bbox → courtyard bbox → pad bbox (local frame)
     let local = null;
@@ -368,6 +404,29 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
   for (const n of tree) {
     if (!Array.isArray(n)) continue;
     const ly = layerOf(n);
+    if (/^gr_(line|rect|circle|arc|poly|curve)$/.test(n[0])) addShape(ly, shapeToPolylines(n), strokeWidth(n, 0.1), isFilled(n));
+    else if (n[0] === 'gr_text' && ly && !isHidden(n)) {
+      const at = kid(n, 'at');
+      if (at) gfxLayer(gfx, ly).t.push(textInfo(n, str(n[1]), num(at[1]), num(at[2]), at[3] != null ? num(at[3]) : 0));
+    }
+    if ((n[0] === 'segment' || n[0] === 'arc') && /\.Cu$/.test(ly)) {
+      const w = num((kid(n, 'width') || [])[1]) || 0.25;
+      const pts = n[0] === 'arc' ? arcPoints(xy(kid(n, 'start')), xy(kid(n, 'mid')), xy(kid(n, 'end')), 12) : [xy(kid(n, 'start')), xy(kid(n, 'end'))];
+      gfxLayer(gfx, ly).s.push({ pts, w, k: 'track' });
+    } else if (n[0] === 'via') {
+      const at = kid(n, 'at'), sz = kid(n, 'size'), dr = kid(n, 'drill'), vl = kid(n, 'layers');
+      const d = sz ? num(sz[1]) : 0.6, x = num(at[1]), y = num(at[2]);
+      const ends = vl ? vl.slice(1).map(str) : ['F.Cu', 'B.Cu'];
+      const i0 = Math.max(0, cuLayers.indexOf(ends[0])), i1 = cuLayers.indexOf(ends[ends.length - 1]);
+      for (const l of cuLayers.slice(Math.min(i0, i1 < 0 ? cuLayers.length - 1 : i1), Math.max(i0, i1 < 0 ? cuLayers.length - 1 : i1) + 1)) gfxLayer(gfx, l).p.push({ x, y, w: d, h: d, shape: 'circle', rot: 0, k: 'via' });
+      const dd = dr ? num(dr[1]) : 0.3;
+      gfxLayer(gfx, 'Drill').p.push({ x, y, w: dd, h: dd, shape: 'circle', rot: 0, k: 'via' });
+    } else if (n[0] === 'zone') {
+      for (const fpoly of kids(n, 'filled_polygon')) {
+        const fl = layerOf(fpoly), ptsNode = kid(fpoly, 'pts');
+        if (fl && ptsNode) gfxLayer(gfx, fl).f.push({ pts: kids(ptsNode, 'xy').map(xy), k: /\.Cu$/.test(fl) ? 'zone' : 'gfx' });
+      }
+    }
     if (/^gr_(line|rect|circle|arc|poly|curve)$/.test(n[0]) && /SilkS$/.test(ly)) {
       for (const pl of shapeToPolylines(n)) silk[ly.startsWith('B') ? 'B' : 'F'].push({ pts: pl, w: strokeWidth(n), fill: isFilled(n) });
     } else if (n[0] === 'gr_text' && /SilkS$/.test(ly) && !isHidden(n)) {
@@ -407,7 +466,7 @@ export function parseKicadPcb(text, fileName = 'board.kicad_pcb') {
 
   return {
     fileName, title, rev, date, company, version, thickness, maskColor,
-    outline, holes, bounds, footprints, silk, texts, copper, vias,
+    outline, holes, bounds, footprints, silk, texts, copper, vias, gfx, cuLayers, layerNames,
   };
 }
 

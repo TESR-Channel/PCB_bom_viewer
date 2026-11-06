@@ -1,17 +1,15 @@
 // TESR BOM Viewer — 2D board view (canvas): pads, silkscreen, bodies, highlight, pan / zoom / pick
 // Made by TESR — Thai Embedded System and Robotics
-import { pointInPoly } from './kicad.js?b=20261106b';
-import { paintSide, THEMES } from './paint.js?b=20261106b';
-
-const MASKS = {
-  black: { mask: '#141416', edge: '#3a3a40', pad: '#C9A84C', padTh: '#d8c07a', silk: '#e9e6df', body: 'rgba(255,255,255,0.05)' },
-  green: { mask: '#15452b', edge: '#2d6b45', pad: '#d9c27a', padTh: '#e5d29a', silk: '#f2f2f2', body: 'rgba(255,255,255,0.06)' },
-  white: { mask: '#efece4', edge: '#c8c2b4', pad: '#b9a25e', padTh: '#c9b27a', silk: '#1a1a1d', body: 'rgba(0,0,0,0.05)' },
-};
+import { pointInPoly } from './kicad.js?b=20261106c';
+import { paintSide, paintOverlays, paintCad, flashPath, THEMES } from './paint.js?b=20261106c';
+import { defaultVis } from './layers.js?b=20261106c';
 
 export class Board2D {
-  constructor(canvas, { onPick, onHover } = {}) {
+  constructor(canvas, { onPick, onHover, onCursor } = {}) {
     this.cv = canvas;
+    this.onCursor = onCursor;
+    this.layers = { vis: defaultVis(), style: 'real', opacity: 0.85, active: null, contrast: false };
+    this._layerKey = '';
     this.ctx = canvas.getContext('2d');
     this.onPick = onPick;
     this.onHover = onHover;
@@ -34,6 +32,9 @@ export class Board2D {
   setBoard(board) { this.board = board; this._gen = (this._gen || 0) + 1; this.fit(); }
   setSide(s) { this.side = s; this.fit(); }
   setTheme(t) { this.theme = t; this.draw(); }
+  /** layer view settings: { vis, style: 'real' | 'cad', opacity, active, contrast } */
+  setLayers(l) { this.layers = { ...this.layers, ...l }; this._layerKey = JSON.stringify(this.layers); this.draw(); }
+  get vis() { return this.layers.vis; }
 
   resize() {
     const r = this.cv.parentElement.getBoundingClientRect();
@@ -60,7 +61,8 @@ export class Board2D {
     const [x0, y0, x1, y1] = this.board.bounds;
     const n = this.panels().length;
     const w = (x1 - x0) * n + (n - 1) * 6, h = y1 - y0;
-    const W = this.cv.width, H = this.cv.height, pad = 24 * (this.dpr || 1);
+    const inset = (this.insetRight || 0) * (this.dpr || 1); // room for the layer panel
+    const W = this.cv.width - inset, H = this.cv.height, pad = 24 * (this.dpr || 1);
     const s = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
     this.view = { s, ox: (W - w * s) / 2, oy: (H - h * s) / 2 };
     this.draw();
@@ -126,6 +128,7 @@ export class Board2D {
     cv.addEventListener('pointerdown', (e) => { drag = { p: pos(e), ox: this.view.ox, oy: this.view.oy }; moved = false; cv.setPointerCapture(e.pointerId); });
     cv.addEventListener('pointermove', (e) => {
       const p = pos(e);
+      if (this.onCursor && this.board?.bounds) this.onCursor(this.inv(...p));
       if (drag) {
         const dx = p[0] - drag.p[0], dy = p[1] - drag.p[1];
         if (Math.abs(dx) + Math.abs(dy) > 4 * this.dpr) moved = true;
@@ -140,7 +143,7 @@ export class Board2D {
       if (drag && !moved) { const fp = this.pick(...pos(e)); this.onPick?.(fp, e); }
       drag = null;
     });
-    cv.addEventListener('pointerleave', () => { if (this.hover) { this.hover = null; this.draw(); this.onHover?.(null); } });
+    cv.addEventListener('pointerleave', () => { this.onCursor?.(null); if (this.hover) { this.hover = null; this.draw(); this.onHover?.(null); } });
     cv.addEventListener('dblclick', () => this.fit());
   }
 
@@ -161,7 +164,7 @@ export class Board2D {
     const T = THEMES[this.theme] || THEMES.black;
     const s = this.view.s;
     // static layers (mask, copper, silk, pads) are cached until the view changes
-    const key = [W, H, s, this.view.ox, this.view.oy, this.side, this.theme, b.fileName, b.footprints.length, this._gen || 0].join('|');
+    const key = [W, H, s, this.view.ox, this.view.oy, this.side, this.theme, b.fileName, b.footprints.length, this._gen || 0, this._layerKey].join('|');
     if (key !== this._baseKey) {
       this._base = this._base || document.createElement('canvas');
       this._base.width = W; this._base.height = H;
@@ -191,9 +194,10 @@ export class Board2D {
       if (this.hover && this.hover.side === p.side) this._body(c, p, this.hover, 'rgba(255,255,255,0.12)', '#ffffff', 1.4);
 
       // ref labels
-      if (this.showRefs && s > 6) {
+      if (this.showRefs && this.vis.refs !== false && s > 6) {
         c.textAlign = 'center'; c.textBaseline = 'middle';
-        const silkRefs = new Set((b.texts?.[p.side] || []).map((t) => t.text));
+        const silkShown = this.vis[`${p.side}.SilkS`] !== false && this.vis.texts !== false;
+        const silkRefs = new Set(silkShown ? (b.texts?.[p.side] || []).map((t) => t.text) : []);
         for (const fp of b.footprints) {
           if (fp.side !== p.side || !fp.body?.length || !fp.inBom) continue;
           if (silkRefs.has(fp.ref) && !this.selected.has(fp.ref) && !this.placed.has(fp.ref)) continue; // already printed on the silkscreen
@@ -215,27 +219,31 @@ export class Board2D {
   }
 
   _drawBase(c, b, T, s) {
+    const L = this.layers, vis = L.vis;
     for (const p of this.panels()) {
-      // board: mask, copper, silkscreen, texts
-      paintSide(c, b, p.side, (x, y) => this.tx(p, x, y), s, this.theme, { mirrorView: p.side === 'B' });
+      const tf = (x, y) => this.tx(p, x, y), mirror = p.side === 'B';
+      if (L.style === 'cad') {
+        // CAD / Gerber-viewer look: every visible layer in its own colour
+        this._scratch = this._scratch || document.createElement('canvas');
+        paintCad(c, b, p.side, tf, s, { vis, mirrorView: mirror, opacity: L.opacity, active: L.active, contrast: L.contrast, panelSide: this.side === 'FB' ? p.side : null, scratch: this._scratch });
+      } else {
+        // realistic: mask / FR-4, copper, silkscreen, texts → pads → technical overlays
+        paintSide(c, b, p.side, tf, s, this.theme, { mirrorView: mirror, vis });
+        if (vis[`${p.side}.Cu`] !== false && vis.pads !== false) {
+          for (const fp of b.footprints) for (const pd of fp.pads) {
+            if (!(p.side === 'F' ? pd.front : pd.back)) continue;
+            this._pad(c, p, pd, pd.drill ? T.padTh : T.pad);
+          }
+        }
+        paintOverlays(c, b, p.side, tf, s, vis, mirror);
+      }
+      if (vis.parts !== false) for (const fp of b.footprints) if (!fp.pads.length && fp.side === p.side && fp.body?.length) this._body(c, p, fp, 'rgba(201,168,76,0.35)', T.pad, 1);
 
       // side label
       c.fillStyle = 'rgba(201,168,76,0.9)';
       c.font = `600 ${Math.max(11, 3.2 * s)}px "Chakra Petch", sans-serif`;
       const [lx, ly] = this.tx(p, p.side === 'B' ? b.bounds[2] : b.bounds[0], b.bounds[1]);
       if (this.side === 'FB') c.fillText(p.side === 'F' ? 'TOP' : 'BOTTOM', lx, ly - 6 * this.dpr);
-
-      // pads
-      for (const fp of b.footprints) {
-        const own = fp.side === p.side;
-        for (const pd of fp.pads) {
-          const vis = p.side === 'F' ? pd.front : pd.back;
-          if (!vis) continue;
-          this._pad(c, p, pd, pd.drill ? T.padTh : T.pad);
-        }
-        if (!fp.pads.length && own && fp.body?.length) this._body(c, p, fp, 'rgba(201,168,76,0.35)', T.pad, 1);
-      }
-
     }
   }
 
@@ -249,39 +257,13 @@ export class Board2D {
   }
 
   _pad(c, p, pd, color) {
-    const [X, Y] = this.tx(p, pd.x, pd.y);
-    const s = this.view.s;
-    const a = ((p.side === 'B' ? pd.rot : -pd.rot) * Math.PI) / 180;
-    c.save();
-    c.translate(X, Y); c.rotate(a);
-    const w = pd.w * s, h = pd.h * s;
-    c.fillStyle = color;
-    c.beginPath();
-    if (pd.shape === 'circle') c.arc(0, 0, w / 2, 0, Math.PI * 2);
-    else if (pd.shape === 'oval') {
-      const r = Math.min(w, h) / 2;
-      roundRect(c, -w / 2, -h / 2, w, h, r);
-    } else if (pd.shape === 'roundrect') roundRect(c, -w / 2, -h / 2, w, h, Math.min(w, h) * 0.25);
-    else c.rect(-w / 2, -h / 2, w, h);
-    c.fill();
+    const s = this.view.s, mirror = p.side === 'B', tf = (x, y) => this.tx(p, x, y);
+    flashPath(c, tf, s, pd, mirror);
+    c.fillStyle = color; c.fill();
     if (pd.drill) {
-      c.fillStyle = '#0B0B0D';
-      c.beginPath();
-      const dw = pd.drill[0] * s, dh = pd.drill[1] * s;
-      if (Math.abs(dw - dh) < 1e-3) c.arc(0, 0, dw / 2, 0, Math.PI * 2);
-      else roundRect(c, -dw / 2, -dh / 2, dw, dh, Math.min(dw, dh) / 2);
-      c.fill();
+      flashPath(c, tf, s, { x: pd.x, y: pd.y, w: pd.drill[0], h: pd.drill[1], rot: pd.rot, shape: Math.abs(pd.drill[0] - pd.drill[1]) < 1e-3 ? 'circle' : 'oval' }, mirror);
+      c.fillStyle = '#0B0B0D'; c.fill();
     }
-    c.restore();
   }
 }
 
-function roundRect(c, x, y, w, h, r) {
-  r = Math.min(r, w / 2, h / 2);
-  c.moveTo(x + r, y);
-  c.arcTo(x + w, y, x + w, y + h, r);
-  c.arcTo(x + w, y + h, x, y + h, r);
-  c.arcTo(x, y + h, x, y, r);
-  c.arcTo(x, y, x + w, y, r);
-  c.closePath();
-}

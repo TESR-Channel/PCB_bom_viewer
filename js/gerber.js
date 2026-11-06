@@ -1,7 +1,8 @@
 // TESR BOM Viewer — Gerber (RS-274X) + Excellon readers, Gerber .zip loader, and BOM + CPL + Gerber board builder
 // Made by TESR — Thai Embedded System and Robotics
 import { unzipSync, strFromU8 } from '../vendor/fflate/fflate.module.js';
-import { chainLoops, fpTransform, pointInPoly } from './kicad.js?b=20261106b';
+import { chainLoops, fpTransform, pointInPoly } from './kicad.js?b=20261106c';
+import { gfxLayer } from './layers.js?b=20261106c';
 
 // ------------------------------------------------------------ apertures ----
 
@@ -49,7 +50,7 @@ export function parseGerber(text) {
   const out = { strokes: [], flashes: [], regions: [], attrs: {} };
   let intX = 3, decX = 6, intY = 3, decY = 6, trailing = false, scale = 1;
   const aps = {}, macros = {};
-  let cur = null, x = 0, y = 0, interp = 1, region = false, contour = [], objRef = '';
+  let cur = null, x = 0, y = 0, interp = 1, region = false, contour = [], objRef = '', clear = false;
   const coord = (s, dec, int) => {
     if (s == null) return null;
     if (s.includes('.')) return parseFloat(s) * scale;
@@ -66,7 +67,7 @@ export function parseGerber(text) {
     let m;
     if ((m = /^G0?([1-3])(?=\D|$)/.exec(w))) interp = +m[1];
     if (/G36/.test(w)) { region = true; contour = []; }
-    if (/G37/.test(w)) { if (contour.length > 2) out.regions.push(contour); region = false; contour = []; return; }
+    if (/G37/.test(w)) { if (contour.length > 2) { if (clear) contour.clear = true; out.regions.push(contour); } region = false; contour = []; return; }
     if (/^M0?2/.test(w)) return;
     if ((m = /(?:G54)?D(\d+)$/.exec(w)) && +m[1] >= 10 && !/[XY]/.test(w)) { cur = aps[m[1]] || null; return; }
     const g = (k) => { const r = new RegExp(`${k}([+-]?[\\d.]+)`).exec(w); return r ? r[1] : null; };
@@ -88,12 +89,12 @@ export function parseGerber(text) {
         for (let q = 0; q <= k; q++) { const t = a0 + ((a1 - a0) * q) / k; pts.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); }
       }
       if (region) { if (!contour.length) contour.push(pts[0]); contour.push(...pts.slice(1)); }
-      else out.strokes.push({ pts, w: cur ? Math.min(cur.w, cur.h) : 0.1 });
+      else out.strokes.push({ pts, w: cur ? Math.min(cur.w, cur.h) : 0.1, clear });
     } else if (op === 2) {
-      if (region && contour.length > 2) { out.regions.push(contour); }
+      if (region && contour.length > 2) { if (clear) contour.clear = true; out.regions.push(contour); }
       if (region) contour = [[X, Y]];
     } else if (op === 3 && cur) {
-      out.flashes.push({ x: X, y: Y, ...cur, ref: objRef });
+      out.flashes.push({ x: X, y: Y, ...cur, ref: objRef, clear });
     }
     x = X; y = Y;
   };
@@ -125,7 +126,8 @@ export function parseGerber(text) {
           ap = { shape: /round/i.test(name) || b.round ? 'roundrect' : 'rect', w: b.w * scale, h: b.h * scale, ox: b.cx * scale, oy: b.cy * scale };
         }
         aps[code] = ap;
-      } else if ((m = /^TF\.FileFunction,(.+)$/.exec(head))) out.attrs.fileFunction = m[1];
+      } else if ((m = /^LP([DC])/.exec(head))) clear = m[1] === 'C';
+      else if ((m = /^TF\.FileFunction,(.+)$/.exec(head))) out.attrs.fileFunction = m[1];
       else if ((m = /^TO\.C,(.+)$/.exec(head))) objRef = m[1].trim();
       else if (/^TD/.test(head) && (head === 'TD' || /^TD\.C\b/.test(head))) objRef = '';
       continue;
@@ -199,6 +201,8 @@ function roleOf(name, text) {
     if (/^Profile/.test(f)) return 'edge';
     if (/^Copper,L1,Top|^Copper,L1\b/.test(f)) return 'cuF';
     if (/^Copper,L\d+,Bot/.test(f)) return 'cuB';
+    const inr = /^Copper,L(\d+),Inr/.exec(f);
+    if (inr) return `cuIn${+inr[1] - 1}`;
     if (/^Paste,Top/.test(f)) return 'pasteF';
     if (/^Paste,Bot/.test(f)) return 'pasteB';
     if (/^Legend,Top/.test(f)) return 'silkF';
@@ -210,6 +214,8 @@ function roleOf(name, text) {
   if (/^M48/m.test(text.slice(0, 400)) || /\.(drl|xln|exc|drd)$/i.test(name)) return 'drill';
   if (/drl_map|drill_map|drillmap|-job\.|\.gbrjob$/i.test(name)) return null;
   for (const [r, re] of ROLE_RULES) if (re.test(name)) return r;
+  const inr = /in(\d+)[_.-]?cu\b|\.g(\d+)$|\.gp?(\d+)$/i.exec(name);
+  if (inr) return `cuIn${+(inr[1] || inr[2] || inr[3])}`;
   return null;
 }
 
@@ -220,7 +226,10 @@ export function readGerberFiles(list) {
     const role = roleOf(name, text);
     res.files.push({ name, role });
     if (!role) continue;
-    if (role === 'drill') res.drills.push(...parseExcellon(text));
+    if (role === 'drill') {
+      const npth = /npth|non[_-]?plated/i.test(name) || /TF\.FileFunction,NonPlated/i.test(text.slice(0, 2000));
+      res.drills.push(...parseExcellon(text).map((h) => ({ ...h, npth })));
+    }
     else if (!res.layers[role]) res.layers[role] = parseGerber(text);
   }
   return res;
@@ -287,11 +296,12 @@ export function boardFromFab(bomRows, cplRows, gerber, name = 'JLCPCB') {
     let hit = false;
     for (const p of pads) {
       if (Math.hypot(p.x - d.x, p.y - d.y) < 0.05) {
-        if (d.d <= 0.45 && p.shape === 'circle' && p.w <= 0.9) viaKeys.add(p);
-        else p.drill = [d.d, d.d];
+        if (d.d <= 0.45 && p.shape === 'circle' && p.w <= 0.9) { viaKeys.add(p); d.k = 'via'; }
+        else { p.drill = [d.d, d.d]; d.k = 'pth'; }
         hit = true;
       }
     }
+    if (!d.k) d.k = d.npth || !hit ? 'npth' : 'pth';
     if (!hit && d.d >= 1.0) {
       const c = [];
       for (let k = 0; k <= 32; k++) { const t = (k / 32) * 2 * Math.PI; c.push([d.x + (d.d / 2) * Math.cos(t), d.y + (d.d / 2) * Math.sin(t)]); }
@@ -306,9 +316,10 @@ export function boardFromFab(bomRows, cplRows, gerber, name = 'JLCPCB') {
   for (const [side, key] of [['F', 'silkF'], ['B', 'silkB']]) {
     const l = L[key];
     if (!l) continue;
-    for (const st of l.strokes) silk[side].push({ pts: flip(st.pts), w: st.w || 0.15, fill: false });
-    for (const r of l.regions) silk[side].push({ pts: flip(r.concat([r[0]])), w: 0, fill: true });
+    for (const st of l.strokes) if (!st.clear) silk[side].push({ pts: flip(st.pts), w: st.w || 0.15, fill: false });
+    for (const r of l.regions) if (!r.clear) silk[side].push({ pts: flip(r.concat([r[0]])), w: 0, fill: true });
     for (const f of l.flashes) {
+      if (f.clear) continue;
       const hw = f.w / 2, hh = f.h / 2, x = f.x + (f.ox || 0), y = -(f.y + (f.oy || 0));
       silk[side].push({ pts: [[x - hw, y - hh], [x + hw, y - hh], [x + hw, y + hh], [x - hw, y + hh], [x - hw, y - hh]], w: 0, fill: true });
     }
@@ -317,8 +328,8 @@ export function boardFromFab(bomRows, cplRows, gerber, name = 'JLCPCB') {
   for (const [side, key] of [['F', 'cuF'], ['B', 'cuB']]) {
     const l = L[key];
     if (!l) continue;
-    for (const st of l.strokes) copper[side].tracks.push({ pts: flip(st.pts), w: st.w || 0.2 });
-    for (const r of l.regions) copper[side].zones.push(flip(r));
+    for (const st of l.strokes) if (!st.clear) copper[side].tracks.push({ pts: flip(st.pts), w: st.w || 0.2 });
+    for (const r of l.regions) if (!r.clear) copper[side].zones.push(flip(r));
   }
   const vias = [...viaKeys].map((p) => ({ x: p.x, y: p.y, d: p.w, drill: Math.min(p.w * 0.5, 0.4) }));
 
@@ -422,9 +433,40 @@ export function boardFromFab(bomRows, cplRows, gerber, name = 'JLCPCB') {
   const orphan = realPads.filter((p) => !footprints.some((f) => f.pads.includes(p)));
   if (orphan.length) footprints.push({ ref: '', value: '', footprint: '', side: 'F', x: 0, y: 0, rot: 0, props: {}, attr: { board_only: true }, pads: orphan, silk: [], fab: [], crtyd: [], inBom: false, localBox: [0, 0, 0, 0], body: [] });
 
+  // ---- every Gerber layer as-is, for the layer viewer ----
+  const gfx = {};
+  const ROLE_LAYER = { cuF: 'F.Cu', cuB: 'B.Cu', silkF: 'F.SilkS', silkB: 'B.SilkS', maskF: 'F.Mask', maskB: 'B.Mask', pasteF: 'F.Paste', pasteB: 'B.Paste', edge: 'Edge.Cuts' };
+  const viaAt = new Set(vias.map((v) => `${Math.round(v.x * 20)},${Math.round(v.y * 20)}`));
+  const cuLayers = ['F.Cu'];
+  for (const [role, l] of Object.entries(L)) {
+    const inr = /^cuIn(\d+)$/.exec(role);
+    const id = ROLE_LAYER[role] || (inr ? `In${inr[1]}.Cu` : null);
+    if (!id) continue;
+    if (inr) cuLayers.push(id);
+    const cu = /\.Cu$/.test(id), g = gfxLayer(gfx, id);
+    for (const st of l.strokes) g.s.push({ pts: flip(st.pts), w: st.w || 0.1, k: cu ? 'track' : 'gfx', ...(st.clear ? { c: 1 } : {}) });
+    for (const r of l.regions) g.f.push({ pts: flip(r), k: cu ? 'zone' : 'gfx', ...(r.clear ? { c: 1 } : {}) });
+    for (const f of l.flashes) {
+      const x = f.x + (f.ox || 0), y = -(f.y + (f.oy || 0));
+      const via = cu && f.shape === 'circle' && f.w <= 0.9 && viaAt.has(`${Math.round(x * 20)},${Math.round(y * 20)}`);
+      g.p.push({ x, y, w: f.w, h: f.h, shape: f.shape, rot: 0, rr: 0.25, k: via ? 'via' : cu || /Mask|Paste/.test(id) ? 'pad' : 'gfx', ...(f.clear ? { c: 1 } : {}) });
+    }
+  }
+  cuLayers.sort((a, b) => (a === 'F.Cu' ? -1 : b === 'F.Cu' ? 1 : parseInt(a.slice(2), 10) - parseInt(b.slice(2), 10)));
+  cuLayers.push('B.Cu');
+  if (drills.length) {
+    const g = gfxLayer(gfx, 'Drill');
+    for (const d of drills) {
+      if (d.slot) {
+        const [ax, ay, bx, by] = d.slot;
+        g.s.push({ pts: [[ax, -ay], [bx, -by]], w: d.d, k: d.k });
+      } else g.p.push({ x: d.x, y: d.y, w: d.d, h: d.d, shape: 'circle', rot: 0, k: d.k });
+    }
+  }
+
   const bounds = outline ? bbox(outline) : null;
   return {
     fileName: name, title: name.replace(/\.[^.]+$/, ''), rev: '', date: '', company: '', thickness: 1.6, maskColor: null,
-    outline, holes, bounds, footprints, silk, texts: { F: [], B: [] }, copper, vias, fab: true, csvOnly: !gerber,
+    outline, holes, bounds, footprints, silk, texts: { F: [], B: [] }, copper, vias, fab: true, csvOnly: !gerber, gfx, cuLayers, layerNames: {},
   };
 }

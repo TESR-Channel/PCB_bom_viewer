@@ -1,5 +1,14 @@
 # Changelog — TESR BOM Viewer
 
+## v1.30 — 2026-11-06
+- **Layers panel** (toolbar button or `L`): show / hide every PCB layer — F.Cu / B.Cu / inner copper, F/B silkscreen, F/B solder mask, F/B paste, F/B adhesive, F/B fab, F/B courtyard, Edge.Cuts, drills, Margin, User.Drawings / Comments / Eco / User.1–9 — with object counts per layer
+- Two looks: **Realistic** (board as manufactured; hiding the mask shows bare copper on FR-4) and **Layer colours (CAD)** like KiCad / a Gerber viewer, layers stacked far → near for the viewed side
+- Presets: Assembly · All · Top · Bottom · Copper · Silkscreen · Mask + paste · Mechanical
+- Select a layer + high-contrast mode, double-click to solo a layer, layer opacity, object filters (pads, vias, tracks, zones, texts, components, reference labels)
+- 3D board follows the layer / object switches (surfaces repainted, pads and components hidden)
+- Cursor X / Y readout in mm from the board's lower-left corner; 2D board keeps clear of the open panel
+- KiCad parser keeps every graphic, text, pad, via, zone and track per layer (incl. inner copper and user layer names); Gerber reader keeps every layer with clear polarity (LPC) and splits drills into PTH / NPTH / via
+
 ## v1.20 — 2026-11-06
 - Detailed procedural 3D parts: chip R/C with metal end caps, gull-wing leads for SOIC / SOP / QFP / SOT, pin-1 dimple and top marking, electrolytic caps with polarity band and vent, crystals, inductors, USB-C shell, pin headers / sockets, JST housings, M8 connector
 - 3D board surfaces painted from the design: copper tracks / zones / vias under the mask, thick silkscreen, logos and texts (top and bottom)

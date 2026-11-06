@@ -1,10 +1,11 @@
 // TESR BOM Viewer — main application
 // Made by TESR — Thai Embedded System and Robotics · https://www.tesrshop.com
-import { parseKicadPcb, buildBom, readTableCsv, readTable, mergeBomCsv, refCompare } from './kicad.js?b=20261106b';
-import { VERSION, BUILD_DATE, CHANGELOG } from './version.js?b=20261106b';
-import { parseLabel, matchGroups, CameraScanner, decodeFile, beep } from './scan.js?b=20261106b';
-import { Board2D } from './view2d.js?b=20261106b';
-import { t, setLang } from './i18n.js?b=20261106b';
+import { parseKicadPcb, buildBom, readTableCsv, readTable, mergeBomCsv, refCompare } from './kicad.js?b=20261106c';
+import { VERSION, BUILD_DATE, CHANGELOG } from './version.js?b=20261106c';
+import { parseLabel, matchGroups, CameraScanner, decodeFile, beep } from './scan.js?b=20261106c';
+import { Board2D } from './view2d.js?b=20261106c';
+import { t, setLang } from './i18n.js?b=20261106c';
+import { GROUPS, OBJECTS, PRESETS, panelLayers, applyPreset, defaultVis } from './layers.js?b=20261106c';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -34,7 +35,131 @@ function saveOpts() { localStorageSet(OPT_KEY, JSON.stringify(opts)); }
 
 // ------------------------------------------------------------------ views ----
 const tip = $('#tip');
-const v2 = new Board2D($('#cv2d'), { onPick: (fp) => pickPart(fp), onHover: (fp, e) => hover(fp, e) });
+const v2 = new Board2D($('#cv2d'), { onPick: (fp) => pickPart(fp), onHover: (fp, e) => hover(fp, e), onCursor: (q) => showCursor(q) });
+
+// ------------------------------------------------------------ layer view ----
+// Visibility of every PCB layer (F.Cu, B.SilkS, Edge.Cuts, F.Fab …) + object filters, shared by 2D and 3D.
+const LP = Object.assign({ style: 'real', opacity: 0.85, contrast: false, active: null, open: false, preset: 'assembly' }, opts.layers || {});
+LP.vis = { ...defaultVis(), ...(opts.layers?.vis || {}), refs: opts.refs };
+function saveLayers() {
+  opts.layers = { vis: LP.vis, style: LP.style, opacity: LP.opacity, contrast: LP.contrast, active: LP.active, open: LP.open, preset: LP.preset };
+  saveOpts();
+}
+function applyLayers({ only2d = false } = {}) {
+  v2.setLayers({ vis: { ...LP.vis }, style: LP.style, opacity: LP.opacity, active: LP.active, contrast: LP.contrast });
+  if (v3 && !only2d) { try { v3.setLayers(LP.vis); } catch (e) { err3d(e); } }
+  renderLayerPanel();
+  saveLayers();
+}
+function renderLayerPanel() {
+  const panel = $('#layerPanel');
+  $('#btnLayers').classList.toggle('on', LP.open);
+  $('#btnLayers').setAttribute('aria-expanded', String(LP.open));
+  panel.classList.toggle('hide', !LP.open);
+  if (!LP.open) return;
+  const lang = opts.lang === 'en' ? 'en' : 'th';
+  for (const b of document.querySelectorAll('#lpStyle button')) b.classList.toggle('on', b.dataset.style === LP.style);
+  $('#lpNote3d').classList.toggle('hide', S.mode !== '3d');
+  $('#lpPresets').innerHTML = PRESETS.map((p) => `<button data-preset="${p.id}" class="${LP.preset === p.id ? 'on' : ''}">${esc(p[lang])}</button>`).join('');
+  const list = panelLayers(S.board);
+  let html = S.board && !S.board.gfx ? `<div class="lp-msg">${esc(t('lpNoGfx'))}</div>` : '';
+  for (const g of GROUPS) {
+    const rows = list.filter((l) => l.group === g.id);
+    if (!rows.length) continue;
+    const allOn = rows.every((l) => LP.vis[l.id] !== false);
+    html += `<div class="lp-group"><div class="lp-ghead"><span>${esc(g[lang])}</span><button class="lp-gall" data-group="${g.id}" data-on="${allOn ? 0 : 1}">${esc(allOn ? t('lpHideAll') : t('lpShowAll'))}</button></div>`;
+    for (const l of rows) {
+      const off = LP.vis[l.id] === false;
+      html += `<div class="lp-row${off ? ' off' : ''}${LP.active === l.id ? ' active' : ''}${l.count || !S.board ? '' : ' empty'}" data-id="${esc(l.id)}" title="${esc(l[lang])} — ${esc(t('lpSolo'))}: double-click">`
+        + `<button class="lp-eye" style="--c:${l.color}" data-eye="${esc(l.id)}" aria-pressed="${!off}" aria-label="${esc(l.name)}"></button>`
+        + `<span class="lp-name"><b>${esc(l.name)}</b><small data-empty="${esc(t('lpEmpty'))}">${esc(l[lang])}</small></span>`
+        + `<span class="lp-n">${l.count || ''}</span></div>`;
+    }
+    html += '</div>';
+  }
+  html += `<div class="lp-group"><div class="lp-ghead"><span>${esc(t('lpObjects'))}</span></div>`;
+  for (const o of OBJECTS) {
+    const off = LP.vis[o.id] === false;
+    html += `<div class="lp-row obj${off ? ' off' : ''}" data-obj="${o.id}"><button class="lp-eye" data-eye="${o.id}" aria-pressed="${!off}" aria-label="${esc(o[lang])}"></button><span class="lp-name"><b style="font-family:var(--body)">${esc(o[lang])}</b></span></div>`;
+  }
+  html += '</div>';
+  const body = $('#lpBody'), top = body.scrollTop;
+  body.innerHTML = html;
+  body.scrollTop = top;
+  $('#lpOpacity').value = LP.opacity;
+  $('#lpContrast').checked = LP.contrast;
+}
+function setLayerVis(id, on) {
+  LP.vis[id] = on;
+  LP.preset = null;
+  if (id === 'refs') { opts.refs = on; $('#optRefs').checked = on; v2.showRefs = on; }
+}
+function toggleLayerPanel(open = !LP.open) { LP.open = open; renderLayerPanel(); panelInset(); saveLayers(); }
+// keep the 2D board clear of the layer panel on wide screens
+function panelInset() {
+  const host = $('#boardHost').getBoundingClientRect();
+  const want = LP.open && host.width > 540 ? $('#layerPanel').getBoundingClientRect().width + 12 : 0;
+  if (want !== (v2.insetRight || 0)) { v2.insetRight = want; v2.fit(); }
+}
+new ResizeObserver(() => panelInset()).observe($('#boardHost'));
+$('#btnLayers').addEventListener('click', () => toggleLayerPanel());
+$('#lpClose').addEventListener('click', () => toggleLayerPanel(false));
+$('#lpStyle').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { LP.style = b.dataset.style; applyLayers({ only2d: true }); } });
+$('#lpOpacity').addEventListener('input', (e) => { LP.opacity = +e.target.value; applyLayers({ only2d: true }); });
+$('#lpContrast').addEventListener('change', (e) => { LP.contrast = e.target.checked; if (LP.contrast && LP.style !== 'cad') LP.style = 'cad'; applyLayers({ only2d: true }); });
+$('#lpPresets').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-preset]'); if (!b) return;
+  const p = PRESETS.find((x) => x.id === b.dataset.preset);
+  const extra = S.board ? panelLayers(S.board).map((l) => l.id).filter((k) => /^In\d+\.Cu$/.test(k)) : [];
+  LP.vis = { ...applyPreset(LP.vis, p.id, extra), refs: LP.vis.refs };
+  if (p.style) LP.style = p.style;
+  LP.preset = p.id;
+  if (p.side) { if (S.mode === '3d' && v3) v3.view(p.side === 'B' ? 'bottom' : 'top'); else setSide(p.side); }
+  applyLayers();
+});
+$('#lpBody').addEventListener('click', (e) => {
+  const eye = e.target.closest('[data-eye]');
+  const row = e.target.closest('.lp-row');
+  const gall = e.target.closest('.lp-gall');
+  if (gall) {
+    const on = gall.dataset.on === '1';
+    for (const l of panelLayers(S.board).filter((x) => x.group === gall.dataset.group)) setLayerVis(l.id, on);
+    applyLayers();
+  } else if (eye) {
+    const id = eye.dataset.eye;
+    setLayerVis(id, LP.vis[id] === false);
+    applyLayers({ only2d: id === 'refs' });
+  } else if (row?.dataset.obj) {
+    const id = row.dataset.obj;
+    setLayerVis(id, LP.vis[id] === false);
+    applyLayers({ only2d: id === 'refs' });
+  } else if (row?.dataset.id) {
+    // select (highlight) a layer — patch the rows in place so a double-click still lands on the same element
+    LP.active = LP.active === row.dataset.id ? null : row.dataset.id;
+    for (const r of document.querySelectorAll('#lpBody .lp-row[data-id]')) r.classList.toggle('active', r.dataset.id === LP.active);
+    v2.setLayers({ active: LP.active });
+    saveLayers();
+  }
+});
+$('#lpBody').addEventListener('dblclick', (e) => {
+  const row = e.target.closest('.lp-row[data-id]'); if (!row || e.target.closest('[data-eye]')) return;
+  // solo: only this layer (+ board outline for orientation), shown in layer colours
+  const id = row.dataset.id;
+  for (const l of panelLayers(S.board)) LP.vis[l.id] = l.id === id || l.id === 'Edge.Cuts';
+  LP.active = id; LP.preset = null; LP.style = 'cad';
+  const side = /^[FB]\./.test(id) ? id[0] : null; // look at the layer from its own side
+  if (side && S.mode === '2d' && S.side !== 'FB' && S.side !== side) setSide(side);
+  applyLayers();
+});
+function showCursor(q) {
+  const box = $('#coordBox');
+  const b = S.board;
+  if (!q || !b?.bounds) { box.classList.add('hide'); return; }
+  const x = q.x - b.bounds[0], y = b.bounds[3] - q.y;
+  box.innerHTML = `X ${x.toFixed(2)}  Y ${y.toFixed(2)} mm · ${q.side === 'B' ? 'BOTTOM' : 'TOP'}<small>${esc(t('coordFrom'))}</small>`;
+  box.classList.remove('hide');
+}
+
 let v3 = null, v3Loading = null;
 // 3D is loaded on demand. Any failure (no WebGL, stale cached files, a bad part) is shown in the
 // 3D pane instead of leaving it silently blank, and the next click retries.
@@ -51,10 +176,11 @@ function board3d(board) {
 async function ensure3d() {
   if (v3) return v3;
   if (!v3Loading) v3Loading = (async () => {
-    const { Board3D } = await import('./view3d.js?b=20261106b');
+    const { Board3D } = await import('./view3d.js?b=20261106c');
     const v = new Board3D($('#host3d'), { onPick: (fp) => pickPart(fp), onHover: (fp, e) => hover(fp, e) });
     v3 = v;
     v.visible = true;
+    v.vis = { ...LP.vis };
     v.setTheme(opts.mask);
     if (S.board) board3d(S.board);
     syncViews();
@@ -92,11 +218,11 @@ async function classify(f) {
   const n = f.name;
   if (/\.kicad_pcb$/i.test(n)) return { kind: 'pcb', name: n, text: await f.text() };
   if (/\.zip$/i.test(n)) {
-    const { readGerberZip } = await import('./gerber.js?b=20261106b');
+    const { readGerberZip } = await import('./gerber.js?b=20261106c');
     return { kind: 'gerber', name: n, gerber: readGerberZip(await f.arrayBuffer()) };
   }
   if (/\.xlsx$/i.test(n)) {
-    const { readXlsx } = await import('./xlsx.js?b=20261106b');
+    const { readXlsx } = await import('./xlsx.js?b=20261106c');
     const tbl = readTable(readXlsx(await f.arrayBuffer()));
     return { kind: tbl.kind, name: n, rows: tbl.rows };
   }
@@ -122,7 +248,7 @@ async function loadFiles(files) {
   let gerber = items.find((i) => i.kind === 'gerber');
   const loose = items.filter((i) => i.kind === 'gerberFile');
   if (!gerber && loose.length) {
-    const { readGerberFiles } = await import('./gerber.js?b=20261106b');
+    const { readGerberFiles } = await import('./gerber.js?b=20261106c');
     gerber = { kind: 'gerber', name: `${loose.length} Gerber files`, gerber: readGerberFiles(loose) };
   }
   if (pcb) {
@@ -146,7 +272,7 @@ async function loadFiles(files) {
   if (bom) { S.fab.bom = bom.rows; S.fab.names.bom = bom.name; }
   if (cpl) { S.fab.cpl = cpl.rows; S.fab.names.cpl = cpl.name; }
   if (gerber) { S.fab.gerber = gerber.gerber; S.fab.names.gerber = gerber.name; }
-  const { boardFromFab } = await import('./gerber.js?b=20261106b');
+  const { boardFromFab } = await import('./gerber.js?b=20261106c');
   const title = (S.fab.names.bom || S.fab.names.cpl || S.fab.names.gerber || 'Board')
     .replace(/\.(csv|xlsx|zip|txt)$/i, '').replace(/^(BOM|CPL|Gerber)[_ -]?/i, '').replace(/[_ -]?(JLCPCB|BOM|CPL)$/i, '') || 'Board';
   const board = boardFromFab(S.fab.bom, S.fab.cpl, S.fab.gerber, title);
@@ -215,6 +341,7 @@ function setBoard(board, keepState = false) {
   v2.setBoard(board.outline ? board : null);
   $('#boardHint').classList.toggle('hide', !!board.outline);
   if (v3) board3d(board);
+  renderLayerPanel();
   renderTable();
   renderDetail();
   progress();
@@ -486,6 +613,7 @@ document.addEventListener('keydown', (e) => {
     const g = S.byKey.get(S.sel);
     if (g) { e.preventDefault(); const r = g.refs.find((x) => !S.placed.has(x)); if (r) { togglePlaced(r); toast(`${t('placedMsg')}: ${r}`); } }
   } else if (e.key === '/') { e.preventDefault(); $('#codeInput').focus(); $('#codeInput').select(); }
+  else if ((e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey && !e.altKey) toggleLayerPanel();
   else if (e.key === 'Escape') { S.sel = null; renderTable(); renderDetail(); syncViews(); }
 });
 
@@ -510,6 +638,7 @@ $('#segMode').addEventListener('click', async (e) => {
   if (is3) {
     try { const v = await ensure3d(); v.visible = true; v.resize(); } catch (err) { err3d(err); }
   } else if (v3) v3.visible = false;
+  renderLayerPanel();
 });
 $('#seg3d').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && v3) v3.view(b.dataset.v); });
 $('#btnFit').addEventListener('click', () => { if (S.mode === '3d' && v3) v3.view('iso'); else v2.fit(); });
@@ -538,7 +667,7 @@ $('#optLang').addEventListener('change', (e) => { opts.lang = e.target.value; sa
 $('#optMask').addEventListener('change', (e) => { opts.mask = e.target.value; saveOpts(); v2.setTheme(opts.mask); if (v3) { try { v3.setTheme(opts.mask); } catch (err) { err3d(err); } } });
 $('#optAutoSource').addEventListener('change', (e) => { opts.autoSource = e.target.checked; saveOpts(); });
 $('#optBeep').addEventListener('change', (e) => { opts.beep = e.target.checked; saveOpts(); });
-$('#optRefs').addEventListener('change', (e) => { opts.refs = e.target.checked; saveOpts(); v2.showRefs = opts.refs; v2.draw(); });
+$('#optRefs').addEventListener('change', (e) => { opts.refs = e.target.checked; LP.vis.refs = opts.refs; v2.showRefs = opts.refs; applyLayers({ only2d: true }); });
 $('#optNonBom').addEventListener('change', (e) => { opts.nonBom = e.target.checked; saveOpts(); if (S.board) setBoard(S.board, true); });
 $('#btnReset').addEventListener('click', () => {
   if (!S.board || !confirm(t('resetQ'))) return;
@@ -678,11 +807,14 @@ function applyLang() {
   $('#btnHidePlaced').textContent = S.hidePlaced ? t('showAll') : t('hidePlaced');
   renderSlots();
   if (!newsModal.classList.contains('hide')) renderNews();
+  renderLayerPanel();
   if (S.board) setBoard(S.board, true);
 }
 
 // ------------------------------------------------------------------- boot ----
+applyLayers({ only2d: true });
+panelInset();
 applyLang();
 const params = new URLSearchParams(location.search);
 if (params.has('demo')) loadDemo(params.get('demo') === 'jlc' ? 'jlc' : 'kicad').catch((err) => toast(err.message, true));
-window.TESRBOM = { S, handleCode, loadDemo, loadFiles, select, setSide, refCompare, VERSION }; // for testing / console use
+window.TESRBOM = { S, LP, applyLayers, toggleLayerPanel, handleCode, loadDemo, loadFiles, select, setSide, refCompare, VERSION }; // for testing / console use
