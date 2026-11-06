@@ -2,7 +2,7 @@
   <a href="https://www.tesrshop.com"><img src="assets/tesr_logo.png" width="110" alt="TESR"></a>
 </p>
 
-<h1 align="center">TESR BOM Viewer <sub>v1.40</sub></h1>
+<h1 align="center">TESR BOM Viewer <sub>v1.50</sub></h1>
 <p align="center"><b>จากถุงอะไหล่ → ตำแหน่งบนบอร์ด</b> · From the bag to the board</p>
 
 <p align="center">
@@ -27,6 +27,7 @@
 | ⌨️ **พิมพ์ / ยิงบาร์โค้ด** | พิมพ์ LCSC (`C8734`), MPN, Ref (`R25`), Value (`10k`) · รองรับเครื่องยิงบาร์โค้ด USB โดยไม่ต้องคลิกช่อง |
 | 🖱️ **คลิกเลือก** | ตาราง BOM ↔ บอร์ด 2D (บน / ล่าง / สองด้าน) ↔ บอร์ด 3D (หมุน ซูม คลิกชิ้นส่วน) ซิงค์กันทั้งหมด |
 | 🗂️ **ดูเลเยอร์** | แถบแท็บเลเยอร์แบบ **Altium Designer** ใต้ภาพบอร์ด (Top Layer · Bottom Layer · Mechanical 1 · Top/Bottom Overlay · Paste · Solder …), ปุ่ม LS, Single Layer Mode `Shift+S`, `+` `−` `*` เปลี่ยนเลเยอร์, `Q` mm/mil · แผงเลเยอร์ (กด `L`): เปิด/ปิด ทองแดงบน/ล่าง/ชั้นใน, ซิลค์สกรีน, โซลเดอร์มาสก์, Paste, Fab, Courtyard, Edge.Cuts, รูเจาะ, เลเยอร์ผู้ใช้ · โหมด **สมจริง** / **สีเลเยอร์ (CAD)** · ชุดมุมมอง ด้านบน / ด้านล่าง / ทองแดง / กลไก ฯลฯ · ดับเบิลคลิกดูเลเยอร์เดียว · High contrast · ใช้กับ 2D และ 3D |
+| 📱 **ทุกอุปกรณ์** | ตรวจอุปกรณ์อัตโนมัติ: คอมพิวเตอร์ (3 คอลัมน์) · iPad / แท็บเล็ต (บอร์ด + แท็บ BOM / สแกน) · มือถือ (เมนูล่าง บอร์ด / BOM / สแกน) · รองรับแนวตั้ง/แนวนอน · จอสัมผัส: สองนิ้วซูม แตะสองครั้งพอดีจอ · เปลี่ยนเองได้ในตั้งค่า |
 | ✅ **เช็กลิสต์** | ติ๊ก "หยิบแล้ว" / "วางแล้ว" รายชิ้น · แถบความคืบหน้า · บันทึกอัตโนมัติในเครื่อง · Export `.csv` |
 | 🎨 **ธีม TESR** | ดำ / แดงเข้ม / ทอง · ภาษาไทย / English · PCB สีดำ / เขียว / ขาว |
 
@@ -93,6 +94,7 @@ js/version.js       version number + change log
 js/scan.js          label parsing (LCSC / ECIA / 1D), matching, camera + decoder
 js/view2d.js        2D canvas board view
 js/view3d.js        3D board view (three.js)
+js/device.js        device detection (phone / tablet / computer) + layout choice
 js/layers.js        PCB layer model: layer list, colours, stacking order, presets
 js/paint.js         board painter: realistic look, technical overlays, CAD layer colours
 vendor/             three.js r169, zxing-wasm 2.2.4, fflate 0.8.2 (bundled for offline use)

@@ -1,11 +1,12 @@
 // TESR BOM Viewer — main application
 // Made by TESR — Thai Embedded System and Robotics · https://www.tesrshop.com
-import { parseKicadPcb, buildBom, readTableCsv, readTable, mergeBomCsv, refCompare } from './kicad.js?b=20261106f';
-import { VERSION, BUILD_DATE, CHANGELOG } from './version.js?b=20261106f';
-import { parseLabel, matchGroups, CameraScanner, decodeFile, beep } from './scan.js?b=20261106f';
-import { Board2D } from './view2d.js?b=20261106f';
-import { t, setLang } from './i18n.js?b=20261106f';
-import { GROUPS, OBJECTS, PRESETS, panelLayers, applyPreset, defaultVis, layerDef, setPalette } from './layers.js?b=20261106f';
+import { parseKicadPcb, buildBom, readTableCsv, readTable, mergeBomCsv, refCompare } from './kicad.js?b=20261106i';
+import { VERSION, BUILD_DATE, CHANGELOG } from './version.js?b=20261106i';
+import { parseLabel, matchGroups, CameraScanner, decodeFile, beep } from './scan.js?b=20261106i';
+import { Board2D } from './view2d.js?b=20261106i';
+import { t, setLang } from './i18n.js?b=20261106i';
+import { detectDevice, pickLayout } from './device.js?b=20261106i';
+import { GROUPS, OBJECTS, PRESETS, panelLayers, applyPreset, defaultVis, layerDef, setPalette } from './layers.js?b=20261106i';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -24,6 +25,8 @@ const S = {
   side: 'F',
   storeKey: '',
 };
+// device / layout state (see the devices section)
+const UI = { dev: null, layout: '', view: 'board', panel: 'bom' };
 const OPT_KEY = 'tesr-bomv-opts';
 const opts = Object.assign({ lang: 'th', mask: 'black', autoSource: true, beep: true, refs: true, nonBom: false },
   safeJson(localStorageGet(OPT_KEY)) || {});
@@ -310,7 +313,7 @@ function board3d(board) {
 async function ensure3d() {
   if (v3) return v3;
   if (!v3Loading) v3Loading = (async () => {
-    const { Board3D } = await import('./view3d.js?b=20261106f');
+    const { Board3D } = await import('./view3d.js?b=20261106i');
     const v = new Board3D($('#host3d'), { onPick: (fp) => pickPart(fp), onHover: (fp, e) => hover(fp, e) });
     v3 = v;
     v.visible = true;
@@ -352,11 +355,11 @@ async function classify(f) {
   const n = f.name;
   if (/\.kicad_pcb$/i.test(n)) return { kind: 'pcb', name: n, text: await f.text() };
   if (/\.zip$/i.test(n)) {
-    const { readGerberZip } = await import('./gerber.js?b=20261106f');
+    const { readGerberZip } = await import('./gerber.js?b=20261106i');
     return { kind: 'gerber', name: n, gerber: readGerberZip(await f.arrayBuffer()) };
   }
   if (/\.xlsx$/i.test(n)) {
-    const { readXlsx } = await import('./xlsx.js?b=20261106f');
+    const { readXlsx } = await import('./xlsx.js?b=20261106i');
     const tbl = readTable(readXlsx(await f.arrayBuffer()));
     return { kind: tbl.kind, name: n, rows: tbl.rows };
   }
@@ -382,7 +385,7 @@ async function loadFiles(files) {
   let gerber = items.find((i) => i.kind === 'gerber');
   const loose = items.filter((i) => i.kind === 'gerberFile');
   if (!gerber && loose.length) {
-    const { readGerberFiles } = await import('./gerber.js?b=20261106f');
+    const { readGerberFiles } = await import('./gerber.js?b=20261106i');
     gerber = { kind: 'gerber', name: `${loose.length} Gerber files`, gerber: readGerberFiles(loose) };
   }
   if (pcb) {
@@ -406,7 +409,7 @@ async function loadFiles(files) {
   if (bom) { S.fab.bom = bom.rows; S.fab.names.bom = bom.name; }
   if (cpl) { S.fab.cpl = cpl.rows; S.fab.names.cpl = cpl.name; }
   if (gerber) { S.fab.gerber = gerber.gerber; S.fab.names.gerber = gerber.name; }
-  const { boardFromFab } = await import('./gerber.js?b=20261106f');
+  const { boardFromFab } = await import('./gerber.js?b=20261106i');
   const title = (S.fab.names.bom || S.fab.names.cpl || S.fab.names.gerber || 'Board')
     .replace(/\.(csv|xlsx|zip|txt)$/i, '').replace(/^(BOM|CPL|Gerber)[_ -]?/i, '').replace(/[_ -]?(JLCPCB|BOM|CPL)$/i, '') || 'Board';
   const board = boardFromFab(S.fab.bom, S.fab.cpl, S.fab.gerber, title);
@@ -459,6 +462,7 @@ function setBoard(board, keepState = false) {
   const sig = board.title + '|' + board.footprints.map((f) => f.ref + ':' + f.value).sort().join(',');
   S.storeKey = 'tesr-bomv:' + hashStr(sig);
   if (!keepState) {
+    if (UI.layout === 'phone') setView('board');
     const st = safeJson(localStorageGet(S.storeKey)) || {};
     S.placed = new Set(st.placed || []);
     S.sourced = new Set(st.sourced || []);
@@ -579,7 +583,7 @@ function checkAllDone() {
 function renderDetail() {
   const g = S.byKey.get(S.sel);
   const body = $('#detail .detail-body'), empty = $('#detail .detail-empty');
-  if (!g) { body.classList.add('hide'); empty.classList.remove('hide'); return; }
+  if (!g) { body.classList.add('hide'); empty.classList.remove('hide'); renderSelBar(); return; }
   body.classList.remove('hide'); empty.classList.add('hide');
   $('#dValue').textContent = `#${g.idx}  ${g.value}`;
   $('#dFp').textContent = g.footprint;
@@ -598,6 +602,7 @@ function renderDetail() {
   $('#dKv').innerHTML = kv.join('');
   const full = rowState(g).full;
   $('#btnPlaceAll').textContent = full ? t('unplaceAll') : t('placeAll');
+  renderSelBar();
 }
 
 $('#dRefs').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (c) togglePlaced(c.dataset.ref); });
@@ -628,6 +633,7 @@ function progress() {
   $('#barPlaced').style.width = total ? (100 * done) / total + '%' : '0';
   $('#progSourced').textContent = `${src} / ${parts.length}`;
   $('#barSourced').style.width = parts.length ? (100 * src) / parts.length + '%' : '0';
+  $('#dockProg').textContent = total ? `${done}/${total}` : '';
 }
 
 // ---------------------------------------------------------------- scanning ---
@@ -658,6 +664,7 @@ function handleCode(raw, via = 'scan') {
   status.innerHTML = `<span class="hit">✓ ${t('found')} #${g.idx}</span> ${esc(g.refs.join(', '))} · ${esc(g.value)} <small>(${esc(label.source)} → ${res[0].why})</small>${qtyWarn}${alt}`;
   addLog(true, `#${g.idx} ${g.value} → ${g.refs.join(', ')}`, shown, g.key);
   toast(`${t('found')}: ${g.refs.join(', ')} · ${g.value}${qtyWarn.replace(/<[^>]+>/g, '')}`);
+  if (UI.layout === 'phone') setView('board'); // phone: jump straight to where the part goes
 }
 
 status.addEventListener('click', (e) => { const a = e.target.closest('a[data-key]'); if (a) { e.preventDefault(); select(a.dataset.key, 'scan'); } });
@@ -956,13 +963,109 @@ function applyLang() {
   renderSlots();
   if (!newsModal.classList.contains('hide')) renderNews();
   renderLayerBar(); renderLayerPanel();
+  if (UI.dev) applyDevice();
   if (S.board) setBoard(S.board, true);
+}
+
+// ---------------------------------------------------------------- devices ----
+// Phone / tablet / computer get their own layout (html.ui-*), re-checked on rotate / resize.
+const DEV_ICON = {
+  phone: '<svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 18.5h2" stroke="currentColor" stroke-width="1.8"/></svg>',
+  tablet: '<svg viewBox="0 0 24 24"><rect x="4" y="2.5" width="16" height="19" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 18.5h2" stroke="currentColor" stroke-width="1.8"/></svg>',
+  desktop: '<svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 20.5h8M12 17v3.5" stroke="currentColor" stroke-width="1.8"/></svg>',
+};
+const layName = (l) => t('layName' + l[0].toUpperCase() + l.slice(1));
+function deviceSummary() {
+  const d = UI.dev;
+  return `${d.name} · ${t(d.orientation === 'landscape' ? 'oriLandscape' : 'oriPortrait')}${d.touch ? ' · ' + t('touchOn') : ''}`;
+}
+function applyDevice() {
+  UI.dev = detectDevice();
+  const lay = pickLayout(UI.dev, opts.layout || 'auto');
+  const root = document.documentElement;
+  for (const c of [...root.classList]) if (/^(ui|ori)-/.test(c)) root.classList.remove(c);
+  root.classList.add(`ui-${lay}`, `ori-${UI.dev.orientation}`);
+  root.classList.toggle('touch', UI.dev.touch);
+  const changed = lay !== UI.layout;
+  UI.layout = lay;
+  $('#devNote').textContent = `${t('devDetected')}: ${deviceSummary()} → ${t('devLayout')} ${layName(lay)}`;
+  if (changed) setView(lay === 'phone' ? (S.board ? 'board' : 'bom') : UI.panel);
+  else setView(UI.view);
+}
+function setView(v) {
+  if (UI.layout === 'tablet' && v === 'board') v = UI.panel; // tablet: the board is always on screen
+  UI.view = v;
+  if (v !== 'board') UI.panel = v;
+  const L = $('#layout');
+  for (const c of [...L.classList]) if (/^(view|panel)-/.test(c)) L.classList.remove(c);
+  L.classList.add(`view-${UI.view}`, `panel-${UI.panel}`);
+  for (const b of document.querySelectorAll('#dock button')) b.classList.toggle('on', b.dataset.view === (UI.layout === 'phone' ? UI.view : UI.panel));
+  renderSelBar();
+}
+function dockSpace() {
+  const ph = UI.layout === 'phone' && UI.dev?.orientation === 'portrait';
+  document.documentElement.style.setProperty('--dock-h', ph ? `${$('#dock').offsetHeight + ($('#selBar').classList.contains('hide') ? 0 : $('#selBar').offsetHeight)}px` : '0px');
+}
+function renderSelBar() {
+  const bar = $('#selBar'), g = S.byKey.get(S.sel);
+  if (UI.layout !== 'phone' || !g) { bar.classList.add('hide'); dockSpace(); return; }
+  bar.classList.remove('hide');
+  const next = g.refs.find((r) => !S.placed.has(r));
+  $('#sbVal').textContent = `#${g.idx}  ${g.value}`;
+  $('#sbRefs').textContent = `${g.refs.map((r) => (S.placed.has(r) ? r + '✓' : r)).join(' ')}  ·  ${g.refs.length - g.refs.filter((r) => !S.placed.has(r)).length}/${g.refs.length}`;
+  $('#sbBoard').classList.toggle('hide', UI.view === 'board');
+  $('#sbScan').classList.toggle('hide', UI.view !== 'board');
+  $('#sbPlace').classList.toggle('hide', !next);
+  $('#sbPlace').textContent = next ? `${t('sbPlace')} ${next}` : '';
+  dockSpace();
+}
+$('#dock').addEventListener('click', (e) => { const b = e.target.closest('button[data-view]'); if (b) setView(b.dataset.view); });
+$('#sbBoard').addEventListener('click', () => setView('board'));
+$('#sbScan').addEventListener('click', () => setView('scan'));
+$('#sbPlace').addEventListener('click', () => {
+  const g = S.byKey.get(S.sel); if (!g) return;
+  const r = g.refs.find((x) => !S.placed.has(x));
+  if (r) { togglePlaced(r); toast(`${t('placedMsg')}: ${r}`); }
+});
+$('#optLayout').value = opts.layout || 'auto';
+$('#optLayout').addEventListener('change', (e) => { opts.layout = e.target.value; saveOpts(); applyDevice(); });
+let resizeT = 0;
+window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(applyDevice, 120); });
+window.addEventListener('orientationchange', () => setTimeout(applyDevice, 250));
+
+// long-press a layer tab on touch screens = the right-click menu
+{
+  let lp = null;
+  $('#lbTabs').addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return;
+    const b = e.target.closest('.lb-tab'); if (!b || b.dataset.real) return;
+    lp = { t: setTimeout(() => { lp.fired = true; tabMenu(b.dataset.id, b); }, 550), x: e.clientX, y: e.clientY, fired: false };
+  });
+  const cancel = (e) => { if (lp && (!e || e.type !== 'pointermove' || Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 10)) clearTimeout(lp.t); };
+  $('#lbTabs').addEventListener('pointermove', cancel);
+  $('#lbTabs').addEventListener('pointerup', () => cancel());
+  $('#lbTabs').addEventListener('pointercancel', () => cancel());
+  $('#lbTabs').addEventListener('click', (e) => { if (lp?.fired) { e.stopImmediatePropagation(); e.preventDefault(); lp = null; } }, true);
+}
+
+function showSplash() {
+  let seen = null;
+  try { seen = sessionStorage.getItem('tesr-bomv-splash'); sessionStorage.setItem('tesr-bomv-splash', '1'); } catch { /* private mode */ }
+  if (seen || new URLSearchParams(location.search).has('nosplash')) return;
+  const sp = $('#splash');
+  $('#splashDev').innerHTML = `${DEV_ICON[UI.layout]} ${esc(t('devDetected'))}: ${esc(deviceSummary())} → ${esc(layName(UI.layout))}`;
+  $('#splashSub').textContent = t('splashSub');
+  sp.classList.remove('hide');
+  setTimeout(() => sp.classList.add('out'), 1300);
+  setTimeout(() => sp.classList.add('hide'), 1800);
 }
 
 // ------------------------------------------------------------------- boot ----
 applyLayers({ only2d: true });
 panelInset();
 applyLang();
+applyDevice();
+showSplash();
 const params = new URLSearchParams(location.search);
 if (params.has('demo')) loadDemo(params.get('demo') === 'jlc' ? 'jlc' : 'kicad').catch((err) => toast(err.message, true));
-window.TESRBOM = { S, LP, applyLayers, toggleLayerPanel, handleCode, loadDemo, loadFiles, select, setSide, refCompare, VERSION }; // for testing / console use
+window.TESRBOM = { S, LP, UI, setView, applyDevice, applyLayers, toggleLayerPanel, handleCode, loadDemo, loadFiles, select, setSide, refCompare, VERSION }; // for testing / console use

@@ -1,5 +1,12 @@
 # Changelog — TESR BOM Viewer
 
+## v1.50 — 2026-11-06
+- **Device-aware layouts** (`js/device.js`): detects phone / iPad / tablet / computer, orientation and touch at start-up (short splash shows what was detected) and on every rotate / resize; Settings → *Screen layout* overrides (Automatic / Computer / Tablet / Phone)
+- **Computer**: three columns (BOM · board · scan); a narrow BOM panel drops the MPN column instead of clipping
+- **Tablet / iPad**: board always on screen + BOM / Scan tabs — side column in landscape, bottom half in portrait
+- **Phone**: app-style bottom navigation (Board / BOM / Scan with placed count), a scan jumps straight to the board, sticky selection bar (Place ✓ next ref, Scan next, Show on board); landscape uses a left rail
+- **Touch**: larger hit targets (buttons, layer tabs, checkboxes, chips), 16 px inputs (no iOS zoom), pinch-zoom + two-finger pan on the 2D board, double-tap to fit, long-press a layer tab for its menu
+
 ## v1.40 — 2026-11-06
 - **Altium Designer-style layer tabs** under the board (or at the top, in Settings): Top Layer, Mid-Layers, Bottom Layer, Mechanical 1 (Edge.Cuts), Top / Bottom Overlay, Top / Bottom Paste, Top / Bottom Solder, Top / Bottom Assembly (Fab), Top / Bottom Courtyard, Keep-Out, Mechanical 2+ (user layers), Drill Drawing — hidden layers stay as dimmed tabs
 - Click a tab = current layer (always drawn on top; in the realistic view the board flips to that side) · double-click = single layer · right-click = make current / show / hide / only this / hide others / show all

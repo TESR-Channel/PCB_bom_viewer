@@ -1,6 +1,6 @@
 // TESR BOM Viewer — KiCad .kicad_pcb parser (KiCad 6 / 7 / 8 / 9)
 // Made by TESR — Thai Embedded System and Robotics
-import { gfxLayer, canon } from './layers.js?b=20261106f';
+import { gfxLayer, canon } from './layers.js?b=20261106i';
 
 /** Tokenise + parse an S-expression into nested arrays. Strings stay strings, atoms stay strings. */
 export function parseSexpr(text) {

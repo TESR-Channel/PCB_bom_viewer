@@ -1,8 +1,25 @@
 // TESR BOM Viewer — version + change log (shown in the app header / "What's new")
-export const VERSION = '1.40';
+export const VERSION = '1.50';
 export const BUILD_DATE = '2026-11-06';
 
 export const CHANGELOG = [
+  {
+    v: '1.50', date: '2026-11-06',
+    th: [
+      'ตรวจอุปกรณ์อัตโนมัติตอนเปิด (มือถือ / iPad / แท็บเล็ต / คอมพิวเตอร์ + แนวตั้ง/แนวนอน + จอสัมผัส) แล้วจัดหน้าจอให้เหมาะ — เปลี่ยนเองได้ในตั้งค่า "รูปแบบหน้าจอ"',
+      'iPad / แท็บเล็ต: บอร์ดใหญ่ + แท็บ BOM / สแกน ด้านข้าง (แนวนอน) หรือด้านล่าง (แนวตั้ง)',
+      'มือถือ: แถบเมนูล่าง บอร์ด / BOM / สแกน · สแกนเจอแล้วพาไปดูตำแหน่งบนบอร์ดทันที · แถบรายการที่เลือกพร้อมปุ่ม "วาง ✓" และ "สแกนต่อ" · แนวนอนมีเมนูด้านซ้าย',
+      'จอสัมผัส: ปุ่ม / แท็บ / ช่องติ๊กใหญ่ขึ้น · ใช้สองนิ้วซูมบอร์ด 2D · แตะสองครั้ง = พอดีจอ · กดค้างที่แท็บเลเยอร์ = เมนู',
+      'หมุนจอหรือปรับขนาดหน้าต่าง หน้าจอจะจัดใหม่อัตโนมัติ',
+    ],
+    en: [
+      'Detects the device on start (phone / iPad / tablet / computer + orientation + touch) and picks a layout to match — override in Settings → "Screen layout"',
+      'iPad / tablet: large board + BOM / Scan tabs beside it (landscape) or below it (portrait)',
+      'Phone: bottom navigation Board / BOM / Scan · a successful scan jumps to the part on the board · selection bar with "Place ✓" and "Scan next" · side rail in landscape',
+      'Touch screens: bigger buttons / tabs / checkboxes · pinch-zoom the 2D board · double-tap = fit · long-press a layer tab = menu',
+      'Rotating the device or resizing the window re-arranges the layout automatically',
+    ],
+  },
   {
     v: '1.40', date: '2026-11-06',
     th: [

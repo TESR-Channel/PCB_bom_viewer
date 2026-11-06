@@ -1,8 +1,8 @@
 // TESR BOM Viewer — 2D board view (canvas): pads, silkscreen, bodies, highlight, pan / zoom / pick
 // Made by TESR — Thai Embedded System and Robotics
-import { pointInPoly } from './kicad.js?b=20261106f';
-import { paintSide, paintOverlays, paintCad, flashPath, THEMES } from './paint.js?b=20261106f';
-import { defaultVis } from './layers.js?b=20261106f';
+import { pointInPoly } from './kicad.js?b=20261106i';
+import { paintSide, paintOverlays, paintCad, flashPath, THEMES } from './paint.js?b=20261106i';
+import { defaultVis } from './layers.js?b=20261106i';
 
 export class Board2D {
   constructor(canvas, { onPick, onHover, onCursor } = {}) {
@@ -63,7 +63,7 @@ export class Board2D {
     const w = (x1 - x0) * n + (n - 1) * 6, h = y1 - y0;
     const inset = (this.insetRight || 0) * (this.dpr || 1); // room for the layer panel
     const W = this.cv.width - inset, H = this.cv.height, pad = 24 * (this.dpr || 1);
-    const s = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
+    const s = Math.max(1e-3, Math.min((W - 2 * pad) / w, (H - 2 * pad) / h)); // hidden pane → tiny but valid
     this.view = { s, ox: (W - w * s) / 2, oy: (H - h * s) / 2 };
     this.draw();
   }
@@ -113,9 +113,10 @@ export class Board2D {
   }
 
   _bind() {
-    let drag = null, moved = false;
-    const cv = this.cv;
+    let drag = null, moved = false, pinch = null, lastTap = 0;
+    const cv = this.cv, pts = new Map();
     const pos = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * this.dpr, (e.clientY - r.top) * this.dpr]; };
+    const two = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, c: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] }; };
     cv.addEventListener('wheel', (e) => {
       e.preventDefault();
       const [x, y] = pos(e);
@@ -125,25 +126,59 @@ export class Board2D {
       this.view.s *= f;
       this.draw();
     }, { passive: false });
-    cv.addEventListener('pointerdown', (e) => { drag = { p: pos(e), ox: this.view.ox, oy: this.view.oy }; moved = false; cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener('pointerdown', (e) => {
+      pts.set(e.pointerId, pos(e));
+      cv.setPointerCapture(e.pointerId);
+      if (pts.size === 2) {
+        // two fingers: pinch-zoom + pan (no pick)
+        const g = two();
+        pinch = { ...g, s: this.view.s, ox: this.view.ox, oy: this.view.oy };
+        drag = null; moved = true;
+        return;
+      }
+      if (pts.size === 1) { drag = { p: pos(e), ox: this.view.ox, oy: this.view.oy }; moved = false; }
+    });
     cv.addEventListener('pointermove', (e) => {
       const p = pos(e);
-      if (this.onCursor && this.board?.bounds) this.onCursor(this.inv(...p));
+      if (pts.has(e.pointerId)) pts.set(e.pointerId, p);
+      if (pinch && pts.size >= 2) {
+        const g = two(), f = g.d / pinch.d;
+        this.view.s = pinch.s * f;
+        this.view.ox = g.c[0] - (pinch.c[0] - pinch.ox) * f;
+        this.view.oy = g.c[1] - (pinch.c[1] - pinch.oy) * f;
+        this.draw();
+        return;
+      }
+      if (this.onCursor && this.board?.bounds && e.pointerType !== 'touch') this.onCursor(this.inv(...p));
       if (drag) {
         const dx = p[0] - drag.p[0], dy = p[1] - drag.p[1];
-        if (Math.abs(dx) + Math.abs(dy) > 4 * this.dpr) moved = true;
+        if (Math.abs(dx) + Math.abs(dy) > (e.pointerType === 'touch' ? 8 : 4) * this.dpr) moved = true;
         if (moved) { this.view.ox = drag.ox + dx; this.view.oy = drag.oy + dy; this.draw(); }
         return;
       }
+      if (e.pointerType === 'touch') return;
       const fp = this.pick(...p);
       if (fp !== this.hover) { this.hover = fp; this.draw(); this.onHover?.(fp, e); cv.style.cursor = fp ? 'pointer' : 'grab'; }
       else if (fp) this.onHover?.(fp, e);
     });
-    cv.addEventListener('pointerup', (e) => {
-      if (drag && !moved) { const fp = this.pick(...pos(e)); this.onPick?.(fp, e); }
-      drag = null;
-    });
-    cv.addEventListener('pointerleave', () => { this.onCursor?.(null); if (this.hover) { this.hover = null; this.draw(); this.onHover?.(null); } });
+    const up = (e) => {
+      const had = pts.delete(e.pointerId);
+      if (pinch) { if (pts.size < 2) { pinch = null; drag = null; } return; }
+      if (had && drag && !moved && e.type === 'pointerup') {
+        if (e.pointerType === 'touch') {
+          // double-tap = fit
+          const now = performance.now();
+          if (now - lastTap < 300) { lastTap = 0; this.fit(); drag = null; return; }
+          lastTap = now;
+          if (this.onCursor && this.board?.bounds) this.onCursor(this.inv(...pos(e)));
+        }
+        const fp = this.pick(...pos(e)); this.onPick?.(fp, e);
+      }
+      if (!pts.size) drag = null;
+    };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', up);
+    cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'touch') return; this.onCursor?.(null); if (this.hover) { this.hover = null; this.draw(); this.onHover?.(null); } });
     cv.addEventListener('dblclick', () => this.fit());
   }
 
