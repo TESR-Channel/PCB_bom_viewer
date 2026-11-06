@@ -4,7 +4,7 @@
 //  • paintCad      CAD / Gerber-viewer look: every visible layer in its own colour, stacked far → near
 // All functions honour the layer + object visibility map `vis` (see layers.js).
 // Made by TESR — Thai Embedded System and Robotics
-import { layerDef, stackOrder, kindVisible, gfxCount } from './layers.js?b=20261106e';
+import { layerDef, stackOrder, kindVisible, gfxCount } from './layers.js?b=20261106f';
 
 export const THEMES = {
   black: { mask: '#141416', cu: '#26262b', cuEdge: '#2e2e34', edge: '#3a3a40', pad: '#C9A84C', padTh: '#d8c07a', silk: '#ecebe6', body: 'rgba(255,255,255,0.05)', fr4: '#6b5a36', bare: '#c27a3e' },

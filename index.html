@@ -7,7 +7,7 @@
   <meta name="description" content="TESR BOM Viewer — scan LCSC / DigiKey / Mouser bag labels and find where every part goes on your KiCad board. 100% offline in the browser. Made by TESR.">
   <meta name="theme-color" content="#0B0B0D">
   <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="css/style.css?b=20261106e">
+  <link rel="stylesheet" href="css/style.css?b=20261106f">
   <script type="importmap">
     { "imports": {
         "three": "./vendor/three/three.module.min.js",
@@ -95,7 +95,6 @@
         </div>
         <span class="grow"></span>
         <button class="lb-btn" id="lbSingle" title="Single Layer Mode (Shift+S)"></button>
-        <div class="seg lb-style" id="lbStyle"><button data-style="real" data-i18n="styleRealS">สมจริง</button><button data-style="cad">CAD</button></div>
         <button class="lb-btn lb-cfg" id="btnLayers" title="View Configuration (L)" aria-expanded="false" aria-controls="layerPanel">
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m2 12.5 10 5 10-5M2 17l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
           <span data-i18n="layersBtn">เลเยอร์</span> <kbd>L</kbd>
@@ -113,10 +112,7 @@
             <b><span data-i18n="layersTitle">เลเยอร์ PCB</span> <small class="lp-sub">View Configuration</small></b>
             <button class="lp-x" id="lpClose" aria-label="Close">✕</button>
           </div>
-          <div class="seg lp-style" id="lpStyle">
-            <button data-style="real" data-i18n="styleReal">สมจริง</button><button data-style="cad" data-i18n="styleCad">สีเลเยอร์ (CAD)</button>
-          </div>
-          <div class="lp-note hide" id="lpNote3d" data-i18n="lpNote3d">3D แสดงแบบสมจริงเสมอ — ปิด/เปิดเลเยอร์ได้เหมือน 2D</div>
+          <div class="lp-note hide" id="lpNote3d" data-i18n="lpNote3d">3D แสดงแบบบอร์ดจริงเสมอ — ปิด/เปิดเลเยอร์ได้เหมือน 2D</div>
           <div class="lp-presets" id="lpPresets"></div>
           <div class="lp-body" id="lpBody"></div>
           <div class="lp-foot">
@@ -323,6 +319,6 @@
 
   <div class="dropzone hide" id="dropzone"><div><b data-i18n="dropTitle">วางไฟล์ที่นี่</b><span>.kicad_pcb · BOM · CPL · Gerber .zip</span></div></div>
 
-  <script type="module" src="js/app.js?b=20261106e"></script>
+  <script type="module" src="js/app.js?b=20261106f"></script>
 </body>
 </html>
