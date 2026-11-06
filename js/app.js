@@ -1,11 +1,11 @@
 // TESR BOM Viewer — main application
 // Made by TESR — Thai Embedded System and Robotics · https://www.tesrshop.com
-import { parseKicadPcb, buildBom, readTableCsv, readTable, mergeBomCsv, refCompare } from './kicad.js?b=20261106c';
-import { VERSION, BUILD_DATE, CHANGELOG } from './version.js?b=20261106c';
-import { parseLabel, matchGroups, CameraScanner, decodeFile, beep } from './scan.js?b=20261106c';
-import { Board2D } from './view2d.js?b=20261106c';
-import { t, setLang } from './i18n.js?b=20261106c';
-import { GROUPS, OBJECTS, PRESETS, panelLayers, applyPreset, defaultVis } from './layers.js?b=20261106c';
+import { parseKicadPcb, buildBom, readTableCsv, readTable, mergeBomCsv, refCompare } from './kicad.js?b=20261106e';
+import { VERSION, BUILD_DATE, CHANGELOG } from './version.js?b=20261106e';
+import { parseLabel, matchGroups, CameraScanner, decodeFile, beep } from './scan.js?b=20261106e';
+import { Board2D } from './view2d.js?b=20261106e';
+import { t, setLang } from './i18n.js?b=20261106e';
+import { GROUPS, OBJECTS, PRESETS, panelLayers, applyPreset, defaultVis, layerDef, setPalette } from './layers.js?b=20261106e';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -39,29 +39,185 @@ const v2 = new Board2D($('#cv2d'), { onPick: (fp) => pickPart(fp), onHover: (fp,
 
 // ------------------------------------------------------------ layer view ----
 // Visibility of every PCB layer (F.Cu, B.SilkS, Edge.Cuts, F.Fab …) + object filters, shared by 2D and 3D.
-const LP = Object.assign({ style: 'real', opacity: 0.85, contrast: false, active: null, open: false, preset: 'assembly' }, opts.layers || {});
+// UI follows Altium Designer: layer tabs (bottom), LS layer sets, current layer, Single Layer Mode (Shift+S),
+// + / − / * to change layer, Q for units, L for the View Configuration panel.
+const LP = Object.assign({ style: 'real', opacity: 0.85, single: 'off', active: 'F.Cu', open: false, preset: 'assembly', units: 'mm' }, opts.layers || {});
 LP.vis = { ...defaultVis(), ...(opts.layers?.vis || {}), refs: opts.refs };
+if (!['off', 'hide', 'gray', 'mono'].includes(LP.single)) LP.single = 'off';
+if (!LP.active) LP.active = 'F.Cu';
+opts.barPos = opts.barPos === 'top' ? 'top' : 'bottom';
+opts.palette = opts.palette === 'kicad' ? 'kicad' : 'altium';
+setPalette(opts.palette);
+const langKey = () => (opts.lang === 'en' ? 'en' : 'th');
+const SINGLE_NEXT = { off: 'hide', hide: 'gray', gray: 'mono', mono: 'off' };
+
 function saveLayers() {
-  opts.layers = { vis: LP.vis, style: LP.style, opacity: LP.opacity, contrast: LP.contrast, active: LP.active, open: LP.open, preset: LP.preset };
+  opts.layers = { vis: LP.vis, style: LP.style, opacity: LP.opacity, single: LP.single, active: LP.active, open: LP.open, preset: LP.preset, units: LP.units };
   saveOpts();
 }
 function applyLayers({ only2d = false } = {}) {
-  v2.setLayers({ vis: { ...LP.vis }, style: LP.style, opacity: LP.opacity, active: LP.active, contrast: LP.contrast });
+  v2.setLayers({ vis: { ...LP.vis }, style: LP.style, opacity: LP.opacity, active: LP.active, single: LP.single, palette: opts.palette });
   if (v3 && !only2d) { try { v3.setLayers(LP.vis); } catch (e) { err3d(e); } }
+  renderLayerBar();
   renderLayerPanel();
   saveLayers();
 }
+const boardLayers = () => panelLayers(S.board);
+
+// ---- bottom tab bar ----
+function renderLayerBar() {
+  $('#paneBoard').classList.toggle('bar-top', opts.barPos === 'top');
+  const list = boardLayers();
+  const cur = list.find((l) => l.id === LP.active) || layerDef(LP.active);
+  $('#lbCur').style.setProperty('--c', cur.color);
+  $('#lbCur').title = `${cur.alt} (${cur.id})`;
+  $('#lbTabs').innerHTML = list.map((l) => {
+    const off = LP.vis[l.id] === false;
+    return `<button class="lb-tab${off ? ' off' : ''}${LP.active === l.id ? ' active' : ''}" role="tab" aria-selected="${LP.active === l.id}" data-id="${esc(l.id)}" style="--c:${l.color}" title="${esc(l.alt)} · ${esc(l.kname)} — ${esc(l[langKey()])}${l.count ? ` (${l.count})` : ''}">${esc(l.alt)}</button>`;
+  }).join('');
+  for (const b of document.querySelectorAll('#lbStyle button')) b.classList.toggle('on', b.dataset.style === LP.style);
+  const sb = $('#lbSingle');
+  sb.innerHTML = `<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="4.5" y="4.5" width="7" height="7" fill="currentColor"/></svg><span class="lbl">${esc(t('slTitle'))}: ${esc(t('sl' + LP.single[0].toUpperCase() + LP.single.slice(1)))}</span>`;
+  sb.classList.toggle('on', LP.single !== 'off');
+  scrollTabIntoView();
+}
+function scrollTabIntoView() {
+  const tab = $('#lbTabs .lb-tab.active'), box = $('#lbTabs');
+  if (!tab) return;
+  const l = tab.offsetLeft - box.offsetLeft, r = l + tab.offsetWidth;
+  if (l < box.scrollLeft) box.scrollLeft = l - 8;
+  else if (r > box.scrollLeft + box.clientWidth) box.scrollLeft = r - box.clientWidth + 8;
+}
+/** patch "current layer" highlight without rebuilding (keeps double-click working) */
+function patchActive() {
+  for (const el of document.querySelectorAll('#lbTabs .lb-tab, #lpBody .lp-row[data-id]')) {
+    el.classList.toggle('active', el.dataset.id === LP.active);
+    if (el.classList.contains('lb-tab')) el.setAttribute('aria-selected', String(el.dataset.id === LP.active));
+  }
+  const cur = layerDef(LP.active);
+  $('#lbCur').style.setProperty('--c', cur.color);
+  $('#lbCur').title = `${cur.alt} (${cur.id})`;
+  scrollTabIntoView();
+}
+/** make `id` the current layer (Altium: click a layer tab) */
+function setCurrentLayer(id) {
+  const wasHidden = LP.vis[id] === false;
+  LP.active = id;
+  if (wasHidden) setLayerVis(id, true);
+  // realistic 2D: look at a top / bottom layer from its own side
+  const side = /^[FB]\./.test(id) ? id[0] : null;
+  if (side && LP.style === 'real' && S.mode === '2d' && S.side !== 'FB' && S.side !== side) setSide(side);
+  if (wasHidden) applyLayers();
+  else { patchActive(); v2.setLayers({ active: LP.active }); saveLayers(); }
+}
+function setSingle(mode) {
+  if (mode !== 'off' && LP.style !== 'cad') { LP._styleBeforeSingle = LP.style; LP.style = 'cad'; } // single layer is a CAD view
+  if (mode === 'off' && LP._styleBeforeSingle) { LP.style = LP._styleBeforeSingle; LP._styleBeforeSingle = null; }
+  LP.single = mode;
+  applyLayers({ only2d: true });
+  toast(`Single Layer Mode: ${t('sl' + mode[0].toUpperCase() + mode.slice(1))}`);
+}
+function setStyle(st) {
+  LP.style = st; LP._styleBeforeSingle = null;
+  if (st === 'real') LP.single = 'off'; // the realistic view has no single-layer mode
+  applyLayers({ only2d: true });
+}
+function stepLayer(dir) {
+  const ids = boardLayers().filter((l) => LP.vis[l.id] !== false).map((l) => l.id);
+  if (!ids.length) return;
+  const k = ids.indexOf(LP.active);
+  setCurrentLayer(ids[(k + dir + ids.length) % ids.length]);
+}
+function showCursor(q) {
+  const box = $('#lbXY'), b = S.board;
+  if (!q || !b?.bounds) { box.textContent = ''; return; }
+  const x = q.x - b.bounds[0], y = b.bounds[3] - q.y; // from the board's lower-left corner, Y up
+  box.textContent = LP.units === 'mil' ? `X:${(x / 0.0254).toFixed(0)}mil  Y:${(y / 0.0254).toFixed(0)}mil` : `X:${x.toFixed(2)}mm  Y:${y.toFixed(2)}mm`;
+  box.title = `${t('coordFrom')} · ${q.side === 'B' ? 'BOTTOM' : 'TOP'} · Q = mm / mil`;
+}
+function toggleUnits() { LP.units = LP.units === 'mil' ? 'mm' : 'mil'; saveLayers(); toast(`Units: ${LP.units}`); }
+
+// ---- popup menus (LS layer sets, tab right-click) ----
+const menu = $('#lbMenu');
+function openMenu(html, anchor) {
+  menu.innerHTML = html;
+  menu.classList.remove('hide');
+  const host = $('#boardHost').getBoundingClientRect(), a = anchor.getBoundingClientRect();
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  const left = Math.max(4, Math.min(a.left - host.left, host.width - w - 4));
+  menu.style.left = left + 'px';
+  if (opts.barPos === 'top') { menu.style.top = '4px'; menu.style.bottom = ''; }
+  else { menu.style.bottom = '4px'; menu.style.top = ''; }
+  if (h > host.height - 8) menu.style.maxHeight = (host.height - 8) + 'px';
+}
+function closeMenu() { menu.classList.add('hide'); $('#lbLS').classList.remove('on'); }
+document.addEventListener('pointerdown', (e) => { if (!menu.contains(e.target) && e.target !== $('#lbLS')) closeMenu(); });
+$('#lbLS').addEventListener('click', (e) => {
+  if (!menu.classList.contains('hide') && $('#lbLS').classList.contains('on')) { closeMenu(); return; }
+  const lang = langKey();
+  openMenu(`<div class="mh">${esc(t('lsTitle'))}</div>` + PRESETS.map((p) => `<button data-preset="${p.id}">${esc(p.ls)}<small>${esc(p[lang])}${LP.preset === p.id ? ' ✓' : ''}</small></button>`).join(''), e.currentTarget);
+  $('#lbLS').classList.add('on');
+});
+function tabMenu(id, anchor) {
+  const d = layerDef(id), off = LP.vis[id] === false;
+  openMenu(`<div class="mh">${esc(d.alt)} · ${esc(d.id)}</div>`
+    + `<button data-act="current" data-id="${esc(id)}">${esc(t('ctxCurrent'))}</button>`
+    + `<button data-act="${off ? 'show' : 'hide'}" data-id="${esc(id)}">${esc(off ? t('ctxShow') : t('ctxHide'))}</button>`
+    + `<button data-act="only" data-id="${esc(id)}">${esc(t('ctxOnly'))}<small>Shift+S</small></button>`
+    + `<button data-act="others" data-id="${esc(id)}">${esc(t('ctxHideOthers'))}</button>`
+    + `<hr><button data-act="all">${esc(t('ctxAll'))}</button>`, anchor);
+}
+menu.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.preset) applyLayerSet(b.dataset.preset);
+  else {
+    const id = b.dataset.id, act = b.dataset.act;
+    if (act === 'current') setCurrentLayer(id);
+    else if (act === 'show' || act === 'hide') { setLayerVis(id, act === 'show'); applyLayers(); }
+    else if (act === 'only') { LP.active = id; if (LP.single === 'off') setSingle('hide'); else applyLayers({ only2d: true }); }
+    else if (act === 'others') { for (const l of boardLayers()) LP.vis[l.id] = l.id === id || l.id === 'Edge.Cuts'; LP.active = id; LP.preset = null; applyLayers(); }
+    else if (act === 'all') { for (const l of boardLayers()) LP.vis[l.id] = true; LP.preset = 'all'; applyLayers(); }
+  }
+  closeMenu();
+});
+function applyLayerSet(id) {
+  const p = PRESETS.find((x) => x.id === id);
+  const extra = boardLayers().map((l) => l.id).filter((k) => /^In\d+\.Cu$/.test(k));
+  LP.vis = { ...applyPreset(LP.vis, p.id, extra), refs: LP.vis.refs };
+  if (p.style) LP.style = p.style;
+  LP.preset = p.id;
+  if (LP.vis[LP.active] === false) LP.active = boardLayers().find((l) => LP.vis[l.id] !== false)?.id || 'F.Cu';
+  if (p.side) { LP.active = `${p.side}.Cu`; if (S.mode === '3d' && v3) v3.view(p.side === 'B' ? 'bottom' : 'top'); else setSide(p.side); }
+  applyLayers();
+}
+
+// tab bar events
+$('#lbTabs').addEventListener('click', (e) => { const b = e.target.closest('.lb-tab'); if (b) setCurrentLayer(b.dataset.id); });
+$('#lbTabs').addEventListener('dblclick', (e) => {
+  const b = e.target.closest('.lb-tab'); if (!b) return;
+  LP.active = b.dataset.id;
+  setSingle(LP.single === 'hide' ? 'off' : 'hide');
+});
+$('#lbTabs').addEventListener('contextmenu', (e) => { const b = e.target.closest('.lb-tab'); if (!b) return; e.preventDefault(); tabMenu(b.dataset.id, b); });
+$('#lbTabs').addEventListener('wheel', (e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.preventDefault(); $('#lbTabs').scrollLeft += e.deltaY; } }, { passive: false });
+for (const b of document.querySelectorAll('#layerBar .lb-nav')) b.addEventListener('click', () => { $('#lbTabs').scrollBy({ left: +b.dataset.dir * 160, behavior: 'smooth' }); });
+$('#lbSingle').addEventListener('click', () => setSingle(SINGLE_NEXT[LP.single]));
+$('#lbStyle').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setStyle(b.dataset.style); });
+$('#lbXY').addEventListener('click', toggleUnits);
+
+// ---- View Configuration panel (L) ----
 function renderLayerPanel() {
   const panel = $('#layerPanel');
   $('#btnLayers').classList.toggle('on', LP.open);
   $('#btnLayers').setAttribute('aria-expanded', String(LP.open));
   panel.classList.toggle('hide', !LP.open);
   if (!LP.open) return;
-  const lang = opts.lang === 'en' ? 'en' : 'th';
+  const lang = langKey();
   for (const b of document.querySelectorAll('#lpStyle button')) b.classList.toggle('on', b.dataset.style === LP.style);
+  for (const b of document.querySelectorAll('#lpSingle button')) b.classList.toggle('on', b.dataset.single === LP.single);
   $('#lpNote3d').classList.toggle('hide', S.mode !== '3d');
-  $('#lpPresets').innerHTML = PRESETS.map((p) => `<button data-preset="${p.id}" class="${LP.preset === p.id ? 'on' : ''}">${esc(p[lang])}</button>`).join('');
-  const list = panelLayers(S.board);
+  $('#lpPresets').innerHTML = PRESETS.map((p) => `<button data-preset="${p.id}" class="${LP.preset === p.id ? 'on' : ''}" title="${esc(p.ls)}">${esc(p[lang])}</button>`).join('');
+  const list = boardLayers();
   let html = S.board && !S.board.gfx ? `<div class="lp-msg">${esc(t('lpNoGfx'))}</div>` : '';
   for (const g of GROUPS) {
     const rows = list.filter((l) => l.group === g.id);
@@ -71,8 +227,8 @@ function renderLayerPanel() {
     for (const l of rows) {
       const off = LP.vis[l.id] === false;
       html += `<div class="lp-row${off ? ' off' : ''}${LP.active === l.id ? ' active' : ''}${l.count || !S.board ? '' : ' empty'}" data-id="${esc(l.id)}" title="${esc(l[lang])} — ${esc(t('lpSolo'))}: double-click">`
-        + `<button class="lp-eye" style="--c:${l.color}" data-eye="${esc(l.id)}" aria-pressed="${!off}" aria-label="${esc(l.name)}"></button>`
-        + `<span class="lp-name"><b>${esc(l.name)}</b><small data-empty="${esc(t('lpEmpty'))}">${esc(l[lang])}</small></span>`
+        + `<button class="lp-eye" style="--c:${l.color}" data-eye="${esc(l.id)}" aria-pressed="${!off}" aria-label="${esc(l.alt)}"></button>`
+        + `<span class="lp-name"><b>${esc(l.alt)}</b><small data-empty="${esc(t('lpEmpty'))}">${esc(l.kname)} · ${esc(l[lang])}</small></span>`
         + `<span class="lp-n">${l.count || ''}</span></div>`;
     }
     html += '</div>';
@@ -87,7 +243,6 @@ function renderLayerPanel() {
   body.innerHTML = html;
   body.scrollTop = top;
   $('#lpOpacity').value = LP.opacity;
-  $('#lpContrast').checked = LP.contrast;
 }
 function setLayerVis(id, on) {
   LP.vis[id] = on;
@@ -95,7 +250,7 @@ function setLayerVis(id, on) {
   if (id === 'refs') { opts.refs = on; $('#optRefs').checked = on; v2.showRefs = on; }
 }
 function toggleLayerPanel(open = !LP.open) { LP.open = open; renderLayerPanel(); panelInset(); saveLayers(); }
-// keep the 2D board clear of the layer panel on wide screens
+// keep the 2D board clear of the panel on wide screens
 function panelInset() {
   const host = $('#boardHost').getBoundingClientRect();
   const want = LP.open && host.width > 540 ? $('#layerPanel').getBoundingClientRect().width + 12 : 0;
@@ -104,26 +259,17 @@ function panelInset() {
 new ResizeObserver(() => panelInset()).observe($('#boardHost'));
 $('#btnLayers').addEventListener('click', () => toggleLayerPanel());
 $('#lpClose').addEventListener('click', () => toggleLayerPanel(false));
-$('#lpStyle').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { LP.style = b.dataset.style; applyLayers({ only2d: true }); } });
+$('#lpStyle').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setStyle(b.dataset.style); });
+$('#lpSingle').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setSingle(b.dataset.single); });
 $('#lpOpacity').addEventListener('input', (e) => { LP.opacity = +e.target.value; applyLayers({ only2d: true }); });
-$('#lpContrast').addEventListener('change', (e) => { LP.contrast = e.target.checked; if (LP.contrast && LP.style !== 'cad') LP.style = 'cad'; applyLayers({ only2d: true }); });
-$('#lpPresets').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-preset]'); if (!b) return;
-  const p = PRESETS.find((x) => x.id === b.dataset.preset);
-  const extra = S.board ? panelLayers(S.board).map((l) => l.id).filter((k) => /^In\d+\.Cu$/.test(k)) : [];
-  LP.vis = { ...applyPreset(LP.vis, p.id, extra), refs: LP.vis.refs };
-  if (p.style) LP.style = p.style;
-  LP.preset = p.id;
-  if (p.side) { if (S.mode === '3d' && v3) v3.view(p.side === 'B' ? 'bottom' : 'top'); else setSide(p.side); }
-  applyLayers();
-});
+$('#lpPresets').addEventListener('click', (e) => { const b = e.target.closest('button[data-preset]'); if (b) applyLayerSet(b.dataset.preset); });
 $('#lpBody').addEventListener('click', (e) => {
   const eye = e.target.closest('[data-eye]');
   const row = e.target.closest('.lp-row');
   const gall = e.target.closest('.lp-gall');
   if (gall) {
     const on = gall.dataset.on === '1';
-    for (const l of panelLayers(S.board).filter((x) => x.group === gall.dataset.group)) setLayerVis(l.id, on);
+    for (const l of boardLayers().filter((x) => x.group === gall.dataset.group)) setLayerVis(l.id, on);
     applyLayers();
   } else if (eye) {
     const id = eye.dataset.eye;
@@ -133,32 +279,13 @@ $('#lpBody').addEventListener('click', (e) => {
     const id = row.dataset.obj;
     setLayerVis(id, LP.vis[id] === false);
     applyLayers({ only2d: id === 'refs' });
-  } else if (row?.dataset.id) {
-    // select (highlight) a layer — patch the rows in place so a double-click still lands on the same element
-    LP.active = LP.active === row.dataset.id ? null : row.dataset.id;
-    for (const r of document.querySelectorAll('#lpBody .lp-row[data-id]')) r.classList.toggle('active', r.dataset.id === LP.active);
-    v2.setLayers({ active: LP.active });
-    saveLayers();
-  }
+  } else if (row?.dataset.id) setCurrentLayer(row.dataset.id);
 });
 $('#lpBody').addEventListener('dblclick', (e) => {
   const row = e.target.closest('.lp-row[data-id]'); if (!row || e.target.closest('[data-eye]')) return;
-  // solo: only this layer (+ board outline for orientation), shown in layer colours
-  const id = row.dataset.id;
-  for (const l of panelLayers(S.board)) LP.vis[l.id] = l.id === id || l.id === 'Edge.Cuts';
-  LP.active = id; LP.preset = null; LP.style = 'cad';
-  const side = /^[FB]\./.test(id) ? id[0] : null; // look at the layer from its own side
-  if (side && S.mode === '2d' && S.side !== 'FB' && S.side !== side) setSide(side);
-  applyLayers();
+  LP.active = row.dataset.id;
+  setSingle(LP.single === 'hide' ? 'off' : 'hide');
 });
-function showCursor(q) {
-  const box = $('#coordBox');
-  const b = S.board;
-  if (!q || !b?.bounds) { box.classList.add('hide'); return; }
-  const x = q.x - b.bounds[0], y = b.bounds[3] - q.y;
-  box.innerHTML = `X ${x.toFixed(2)}  Y ${y.toFixed(2)} mm · ${q.side === 'B' ? 'BOTTOM' : 'TOP'}<small>${esc(t('coordFrom'))}</small>`;
-  box.classList.remove('hide');
-}
 
 let v3 = null, v3Loading = null;
 // 3D is loaded on demand. Any failure (no WebGL, stale cached files, a bad part) is shown in the
@@ -176,7 +303,7 @@ function board3d(board) {
 async function ensure3d() {
   if (v3) return v3;
   if (!v3Loading) v3Loading = (async () => {
-    const { Board3D } = await import('./view3d.js?b=20261106c');
+    const { Board3D } = await import('./view3d.js?b=20261106e');
     const v = new Board3D($('#host3d'), { onPick: (fp) => pickPart(fp), onHover: (fp, e) => hover(fp, e) });
     v3 = v;
     v.visible = true;
@@ -218,11 +345,11 @@ async function classify(f) {
   const n = f.name;
   if (/\.kicad_pcb$/i.test(n)) return { kind: 'pcb', name: n, text: await f.text() };
   if (/\.zip$/i.test(n)) {
-    const { readGerberZip } = await import('./gerber.js?b=20261106c');
+    const { readGerberZip } = await import('./gerber.js?b=20261106e');
     return { kind: 'gerber', name: n, gerber: readGerberZip(await f.arrayBuffer()) };
   }
   if (/\.xlsx$/i.test(n)) {
-    const { readXlsx } = await import('./xlsx.js?b=20261106c');
+    const { readXlsx } = await import('./xlsx.js?b=20261106e');
     const tbl = readTable(readXlsx(await f.arrayBuffer()));
     return { kind: tbl.kind, name: n, rows: tbl.rows };
   }
@@ -248,7 +375,7 @@ async function loadFiles(files) {
   let gerber = items.find((i) => i.kind === 'gerber');
   const loose = items.filter((i) => i.kind === 'gerberFile');
   if (!gerber && loose.length) {
-    const { readGerberFiles } = await import('./gerber.js?b=20261106c');
+    const { readGerberFiles } = await import('./gerber.js?b=20261106e');
     gerber = { kind: 'gerber', name: `${loose.length} Gerber files`, gerber: readGerberFiles(loose) };
   }
   if (pcb) {
@@ -272,7 +399,7 @@ async function loadFiles(files) {
   if (bom) { S.fab.bom = bom.rows; S.fab.names.bom = bom.name; }
   if (cpl) { S.fab.cpl = cpl.rows; S.fab.names.cpl = cpl.name; }
   if (gerber) { S.fab.gerber = gerber.gerber; S.fab.names.gerber = gerber.name; }
-  const { boardFromFab } = await import('./gerber.js?b=20261106c');
+  const { boardFromFab } = await import('./gerber.js?b=20261106e');
   const title = (S.fab.names.bom || S.fab.names.cpl || S.fab.names.gerber || 'Board')
     .replace(/\.(csv|xlsx|zip|txt)$/i, '').replace(/^(BOM|CPL|Gerber)[_ -]?/i, '').replace(/[_ -]?(JLCPCB|BOM|CPL)$/i, '') || 'Board';
   const board = boardFromFab(S.fab.bom, S.fab.cpl, S.fab.gerber, title);
@@ -341,7 +468,7 @@ function setBoard(board, keepState = false) {
   v2.setBoard(board.outline ? board : null);
   $('#boardHint').classList.toggle('hide', !!board.outline);
   if (v3) board3d(board);
-  renderLayerPanel();
+  renderLayerBar(); renderLayerPanel();
   renderTable();
   renderDetail();
   progress();
@@ -613,7 +740,15 @@ document.addEventListener('keydown', (e) => {
     const g = S.byKey.get(S.sel);
     if (g) { e.preventDefault(); const r = g.refs.find((x) => !S.placed.has(x)); if (r) { togglePlaced(r); toast(`${t('placedMsg')}: ${r}`); } }
   } else if (e.key === '/') { e.preventDefault(); $('#codeInput').focus(); $('#codeInput').select(); }
-  else if ((e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey && !e.altKey) toggleLayerPanel();
+  else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    // Altium Designer keys
+    if (e.key === 'S' && e.shiftKey) { e.preventDefault(); setSingle(SINGLE_NEXT[LP.single]); }
+    else if (e.key === 'l' || e.key === 'L') toggleLayerPanel();
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); stepLayer(1); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); stepLayer(-1); }
+    else if (e.key === '*') { e.preventDefault(); setCurrentLayer(LP.active === 'F.Cu' ? 'B.Cu' : 'F.Cu'); }
+    else if (e.key === 'q' || e.key === 'Q') toggleUnits();
+  }
   else if (e.key === 'Escape') { S.sel = null; renderTable(); renderDetail(); syncViews(); }
 });
 
@@ -658,6 +793,10 @@ $('#btnMenu').addEventListener('click', () => drawer.classList.remove('hide'));
 $('#btnCloseDrawer').addEventListener('click', () => drawer.classList.add('hide'));
 drawer.addEventListener('click', (e) => { if (e.target === drawer) drawer.classList.add('hide'); });
 $('#optLang').value = opts.lang;
+$('#optBarPos').value = opts.barPos;
+$('#optPalette').value = opts.palette;
+$('#optBarPos').addEventListener('change', (e) => { opts.barPos = e.target.value; saveOpts(); renderLayerBar(); });
+$('#optPalette').addEventListener('change', (e) => { opts.palette = e.target.value; setPalette(opts.palette); saveOpts(); applyLayers({ only2d: true }); });
 $('#optMask').value = opts.mask;
 $('#optAutoSource').checked = opts.autoSource;
 $('#optBeep').checked = opts.beep;
@@ -788,7 +927,7 @@ document.title = `TESR BOM Viewer v${VERSION}`;
 for (const m of [openModal, newsModal]) {
   m.addEventListener('click', (e) => { if (e.target === m || e.target.closest('[data-close]')) m.classList.add('hide'); });
 }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { openModal.classList.add('hide'); newsModal.classList.add('hide'); } });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { openModal.classList.add('hide'); newsModal.classList.add('hide'); closeMenu(); } });
 
 // toast
 let toastTimer = null;
@@ -807,7 +946,7 @@ function applyLang() {
   $('#btnHidePlaced').textContent = S.hidePlaced ? t('showAll') : t('hidePlaced');
   renderSlots();
   if (!newsModal.classList.contains('hide')) renderNews();
-  renderLayerPanel();
+  renderLayerBar(); renderLayerPanel();
   if (S.board) setBoard(S.board, true);
 }
 

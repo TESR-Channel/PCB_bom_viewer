@@ -7,7 +7,7 @@
   <meta name="description" content="TESR BOM Viewer — scan LCSC / DigiKey / Mouser bag labels and find where every part goes on your KiCad board. 100% offline in the browser. Made by TESR.">
   <meta name="theme-color" content="#0B0B0D">
   <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="css/style.css?b=20261106c">
+  <link rel="stylesheet" href="css/style.css?b=20261106e">
   <script type="importmap">
     { "imports": {
         "three": "./vendor/three/three.module.min.js",
@@ -82,7 +82,7 @@
     </section>
 
     <!-- board view -->
-    <section class="pane pane-board">
+    <section class="pane pane-board" id="paneBoard">
       <div class="toolbar board-bar">
         <div class="seg" id="segMode">
           <button data-mode="2d" class="on">2D</button><button data-mode="3d">3D</button>
@@ -94,9 +94,11 @@
           <button data-v="iso">45°</button><button data-v="top">TOP</button><button data-v="front">FRONT</button><button data-v="bottom">BOTTOM</button>
         </div>
         <span class="grow"></span>
-        <button class="btn ghost small layers-btn" id="btnLayers" title="Layers (L)" aria-expanded="false" aria-controls="layerPanel">
-          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m2 12.5 10 5 10-5M2 17l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-          <span data-i18n="layersBtn">เลเยอร์</span>
+        <button class="lb-btn" id="lbSingle" title="Single Layer Mode (Shift+S)"></button>
+        <div class="seg lb-style" id="lbStyle"><button data-style="real" data-i18n="styleRealS">สมจริง</button><button data-style="cad">CAD</button></div>
+        <button class="lb-btn lb-cfg" id="btnLayers" title="View Configuration (L)" aria-expanded="false" aria-controls="layerPanel">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m2 12.5 10 5 10-5M2 17l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          <span data-i18n="layersBtn">เลเยอร์</span> <kbd>L</kbd>
         </button>
         <button class="btn ghost small" id="btnFit" title="Fit (double-click)">⤢</button>
       </div>
@@ -106,10 +108,9 @@
         <div class="board-hint hide" id="boardHint"><b data-i18n="noPos">ยังไม่มีตำแหน่งชิ้นส่วน</b><span data-i18n="noPosSub">เพิ่มไฟล์ CPL (+ Gerber) เพื่อดูบนบอร์ด</span></div>
         <div class="board-hint err3d hide" id="err3d"><b data-i18n="err3d">เปิดภาพ 3D ไม่ได้</b><span data-i18n="err3dSub">กด Ctrl + F5 (Mac: Cmd + Shift + R) เพื่อโหลดใหม่ · ถ้ายังไม่ได้ ให้เปิด Hardware acceleration / WebGL ในเบราว์เซอร์</span><code id="err3dMsg"></code></div>
         <div class="tip" id="tip"></div>
-        <div class="coord hide" id="coordBox"></div>
         <aside class="layer-panel hide" id="layerPanel" aria-label="Layers">
           <div class="lp-head">
-            <b data-i18n="layersTitle">เลเยอร์ PCB</b>
+            <b><span data-i18n="layersTitle">เลเยอร์ PCB</span> <small class="lp-sub">View Configuration</small></b>
             <button class="lp-x" id="lpClose" aria-label="Close">✕</button>
           </div>
           <div class="seg lp-style" id="lpStyle">
@@ -120,11 +121,23 @@
           <div class="lp-body" id="lpBody"></div>
           <div class="lp-foot">
             <label class="lp-op"><span data-i18n="lpOpacity">ความทึบเลเยอร์</span><input type="range" id="lpOpacity" min="0.3" max="1" step="0.05"></label>
-            <label class="lp-chk"><input type="checkbox" id="lpContrast"> <span data-i18n="lpContrast">เน้นเลเยอร์ที่เลือก (High contrast)</span></label>
+            <div class="lp-single"><span data-i18n="lpSingle">Single Layer Mode</span> <kbd>Shift+S</kbd>
+              <div class="seg" id="lpSingle"><button data-single="off" data-i18n="slOff">ปิด</button><button data-single="hide" data-i18n="slHide">ซ่อนอื่น</button><button data-single="gray" data-i18n="slGray">เทา</button><button data-single="mono" data-i18n="slMono">โมโน</button></div>
+            </div>
             <div class="lp-hint" data-i18n-html="lpHint">คลิก ● เปิด/ปิด · คลิกชื่อ = เลือกเลเยอร์ · ดับเบิลคลิก = ดูเลเยอร์นี้อย่างเดียว · กด <kbd>L</kbd> เปิด/ปิดแผงนี้</div>
           </div>
         </aside>
         <div class="toast" id="toast"></div>
+        <div class="lb-menu hide" id="lbMenu" role="menu"></div>
+      </div>
+      <!-- Altium-style layer tabs -->
+      <div class="layer-bar" id="layerBar">
+        <button class="lb-ls" id="lbLS" title="Layer Sets" aria-haspopup="menu">LS</button>
+        <span class="lb-cur" id="lbCur" title="Current layer"></span>
+        <button class="lb-nav" data-dir="-1" aria-label="Scroll left">‹</button>
+        <div class="lb-tabs" id="lbTabs" role="tablist"></div>
+        <button class="lb-nav" data-dir="1" aria-label="Scroll right">›</button>
+        <span class="lb-xy" id="lbXY" title="Q = mm / mil"></span>
       </div>
     </section>
 
@@ -197,6 +210,10 @@
         <select id="optLang"><option value="th">ไทย</option><option value="en">English</option></select></label>
       <label class="opt"><span data-i18n="maskColor">สี PCB</span>
         <select id="optMask"><option value="black">Black (TESR)</option><option value="green">Green</option><option value="white">White</option></select></label>
+      <label class="opt"><span data-i18n="barPos">แถบเลเยอร์</span>
+        <select id="optBarPos"><option value="bottom" data-i18n="barBottom">ด้านล่าง (แบบ Altium)</option><option value="top" data-i18n="barTop">ด้านบน (ใต้แถบเครื่องมือ)</option></select></label>
+      <label class="opt"><span data-i18n="palette">สีเลเยอร์ (CAD)</span>
+        <select id="optPalette"><option value="altium">Altium Designer</option><option value="kicad">KiCad</option></select></label>
       <label class="opt chk"><input type="checkbox" id="optAutoSource" checked> <span data-i18n="autoSource">สแกนเจอ → ติ๊ก "หยิบแล้ว" อัตโนมัติ</span></label>
       <label class="opt chk"><input type="checkbox" id="optBeep" checked> <span data-i18n="beep">เสียงบี๊บเมื่อสแกน</span></label>
       <label class="opt chk"><input type="checkbox" id="optRefs" checked> <span data-i18n="showRefs">แสดงชื่อ Ref บนบอร์ด 2D</span></label>
@@ -306,6 +323,6 @@
 
   <div class="dropzone hide" id="dropzone"><div><b data-i18n="dropTitle">วางไฟล์ที่นี่</b><span>.kicad_pcb · BOM · CPL · Gerber .zip</span></div></div>
 
-  <script type="module" src="js/app.js?b=20261106c"></script>
+  <script type="module" src="js/app.js?b=20261106e"></script>
 </body>
 </html>

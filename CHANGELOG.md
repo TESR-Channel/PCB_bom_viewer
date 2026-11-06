@@ -1,5 +1,14 @@
 # Changelog — TESR BOM Viewer
 
+## v1.40 — 2026-11-06
+- **Altium Designer-style layer tabs** under the board (or at the top, in Settings): Top Layer, Mid-Layers, Bottom Layer, Mechanical 1 (Edge.Cuts), Top / Bottom Overlay, Top / Bottom Paste, Top / Bottom Solder, Top / Bottom Assembly (Fab), Top / Bottom Courtyard, Keep-Out, Mechanical 2+ (user layers), Drill Drawing — hidden layers stay as dimmed tabs
+- Click a tab = current layer (always drawn on top; in the realistic view the board flips to that side) · double-click = single layer · right-click = make current / show / hide / only this / hide others / show all
+- **LS** layer-set menu (All Layers, Signal Layers, NonSignal Layers, Mechanical Layers, Top Side, Bottom Side, Overlay, Solder / Paste, Assembly) and a current-layer colour swatch
+- **Single Layer Mode** (Shift+S) cycles off → hide others → gray scale → monochrome
+- Altium keys: `+` / `−` next / previous visible layer, `*` Top ↔ Bottom Layer, `L` View Configuration panel, `Q` mm ↔ mil, `Shift+S` single layer
+- Layer colours follow Altium defaults; KiCad palette selectable in Settings · panel rows show Altium name + KiCad name
+- X / Y cursor readout moved to the end of the layer tabs; single-layer / realistic-CAD / layer-panel buttons in the board toolbar
+
 ## v1.30 — 2026-11-06
 - **Layers panel** (toolbar button or `L`): show / hide every PCB layer — F.Cu / B.Cu / inner copper, F/B silkscreen, F/B solder mask, F/B paste, F/B adhesive, F/B fab, F/B courtyard, Edge.Cuts, drills, Margin, User.Drawings / Comments / Eco / User.1–9 — with object counts per layer
 - Two looks: **Realistic** (board as manufactured; hiding the mask shows bare copper on FR-4) and **Layer colours (CAD)** like KiCad / a Gerber viewer, layers stacked far → near for the viewed side

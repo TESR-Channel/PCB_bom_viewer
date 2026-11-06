@@ -4,7 +4,7 @@
 //  • paintCad      CAD / Gerber-viewer look: every visible layer in its own colour, stacked far → near
 // All functions honour the layer + object visibility map `vis` (see layers.js).
 // Made by TESR — Thai Embedded System and Robotics
-import { layerDef, stackOrder, kindVisible, gfxCount } from './layers.js?b=20261106c';
+import { layerDef, stackOrder, kindVisible, gfxCount } from './layers.js?b=20261106e';
 
 export const THEMES = {
   black: { mask: '#141416', cu: '#26262b', cuEdge: '#2e2e34', edge: '#3a3a40', pad: '#C9A84C', padTh: '#d8c07a', silk: '#ecebe6', body: 'rgba(255,255,255,0.05)', fr4: '#6b5a36', bare: '#c27a3e' },
@@ -89,7 +89,7 @@ export function paintOverlays(ctx, board, side, T, s, vis, mirrorView = false) {
 
 /**
  * CAD look: each visible layer is rendered alone (so clear-polarity / overlaps stay correct) and composited.
- * @param o { vis, mirrorView, opacity, active, contrast, panelSide: 'F' | 'B' | null (two-panel view), scratch: canvas }
+ * @param o { vis, mirrorView, opacity, active, single: 'off' | 'hide' | 'gray' | 'mono', panelSide: 'F' | 'B' | null (two-panel view), scratch: canvas }
  */
 export function paintCad(ctx, board, view, T, s, o = {}) {
   const vis = o.vis || {};
@@ -111,8 +111,12 @@ export function paintCad(ctx, board, view, T, s, o = {}) {
     if (o.panelSide && (d.side === 'F' || d.side === 'B') && d.side !== o.panelSide) return false;
     return true;
   });
-  const act = o.contrast && o.active && order.includes(o.active) ? o.active : null;
+  // the current layer is always drawn on top (Altium behaviour)
+  const act = o.active && (order.includes(o.active) || o.single === 'hide') ? o.active : null;
   if (act) order = [...order.filter((k) => k !== act), act];
+  // Single Layer Mode (Shift+S): hide / gray-scale / monochrome the other layers
+  const single = act ? o.single || 'off' : 'off';
+  if (single === 'hide') order = [act];
   const opacity = o.opacity ?? 0.85;
   for (const id of order) {
     const d = layerDef(id);
@@ -121,12 +125,22 @@ export function paintCad(ctx, board, view, T, s, o = {}) {
     if (!gfxCount(g)) continue;
     tc.setTransform(1, 0, 0, 1, 0, 0);
     tc.clearRect(0, 0, W, H);
-    drawGfx(tc, g, T, s, d.color, vis, o.mirrorView, { drill: id === 'Drill', minW: id === 'Edge.Cuts' ? 1.4 : 0.8 });
+    let color = d.color, alpha = d.real === 'mask' ? Math.min(opacity, 0.6) : opacity;
+    if (id !== act && single === 'gray') { color = grayOf(d.color); alpha *= 0.55; }
+    if (id !== act && single === 'mono') { color = '#5b5b62'; alpha *= 0.6; }
+    if (id === act && single !== 'off') alpha = 1;
+    drawGfx(tc, g, T, s, color, vis, o.mirrorView, { drill: id === 'Drill', minW: id === 'Edge.Cuts' ? 1.4 : 0.8 });
     ctx.save();
-    ctx.globalAlpha = act ? (id === act ? 1 : 0.16) : d.real === 'mask' ? Math.min(opacity, 0.6) : opacity;
+    ctx.globalAlpha = alpha;
     ctx.drawImage(tmp, 0, 0);
     ctx.restore();
   }
+}
+
+function grayOf(hex) {
+  const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  const y = Math.round(Math.min(255, 70 + 0.6 * (0.3 * r + 0.59 * g + 0.11 * b)));
+  return `rgb(${y},${y},${y})`;
 }
 
 /** Draw one layer's primitives in a single colour. Clear-polarity items are erased afterwards. */

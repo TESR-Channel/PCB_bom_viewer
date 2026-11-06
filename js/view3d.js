@@ -3,8 +3,8 @@
 // Made by TESR — Thai Embedded System and Robotics
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
-import { paintSide, paintOverlays, THEMES } from './paint.js?b=20261106c';
-import { buildPart } from './parts3d.js?b=20261106c';
+import { paintSide, paintOverlays, THEMES } from './paint.js?b=20261106e';
+import { buildPart } from './parts3d.js?b=20261106e';
 
 export class Board3D {
   constructor(host, { onPick, onHover } = {}) {

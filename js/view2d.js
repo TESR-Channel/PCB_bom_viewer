@@ -1,14 +1,14 @@
 // TESR BOM Viewer — 2D board view (canvas): pads, silkscreen, bodies, highlight, pan / zoom / pick
 // Made by TESR — Thai Embedded System and Robotics
-import { pointInPoly } from './kicad.js?b=20261106c';
-import { paintSide, paintOverlays, paintCad, flashPath, THEMES } from './paint.js?b=20261106c';
-import { defaultVis } from './layers.js?b=20261106c';
+import { pointInPoly } from './kicad.js?b=20261106e';
+import { paintSide, paintOverlays, paintCad, flashPath, THEMES } from './paint.js?b=20261106e';
+import { defaultVis } from './layers.js?b=20261106e';
 
 export class Board2D {
   constructor(canvas, { onPick, onHover, onCursor } = {}) {
     this.cv = canvas;
     this.onCursor = onCursor;
-    this.layers = { vis: defaultVis(), style: 'real', opacity: 0.85, active: null, contrast: false };
+    this.layers = { vis: defaultVis(), style: 'real', opacity: 0.85, active: null, single: 'off' };
     this._layerKey = '';
     this.ctx = canvas.getContext('2d');
     this.onPick = onPick;
@@ -32,7 +32,7 @@ export class Board2D {
   setBoard(board) { this.board = board; this._gen = (this._gen || 0) + 1; this.fit(); }
   setSide(s) { this.side = s; this.fit(); }
   setTheme(t) { this.theme = t; this.draw(); }
-  /** layer view settings: { vis, style: 'real' | 'cad', opacity, active, contrast } */
+  /** layer view settings: { vis, style: 'real' | 'cad', opacity, active, single: 'off' | 'hide' | 'gray' | 'mono' } */
   setLayers(l) { this.layers = { ...this.layers, ...l }; this._layerKey = JSON.stringify(this.layers); this.draw(); }
   get vis() { return this.layers.vis; }
 
@@ -225,7 +225,7 @@ export class Board2D {
       if (L.style === 'cad') {
         // CAD / Gerber-viewer look: every visible layer in its own colour
         this._scratch = this._scratch || document.createElement('canvas');
-        paintCad(c, b, p.side, tf, s, { vis, mirrorView: mirror, opacity: L.opacity, active: L.active, contrast: L.contrast, panelSide: this.side === 'FB' ? p.side : null, scratch: this._scratch });
+        paintCad(c, b, p.side, tf, s, { vis, mirrorView: mirror, opacity: L.opacity, active: L.active, single: L.single, panelSide: this.side === 'FB' ? p.side : null, scratch: this._scratch });
       } else {
         // realistic: mask / FR-4, copper, silkscreen, texts → pads → technical overlays
         paintSide(c, b, p.side, tf, s, this.theme, { mirrorView: mirror, vis });

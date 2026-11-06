@@ -1,8 +1,27 @@
 // TESR BOM Viewer — version + change log (shown in the app header / "What's new")
-export const VERSION = '1.30';
+export const VERSION = '1.40';
 export const BUILD_DATE = '2026-11-06';
 
 export const CHANGELOG = [
+  {
+    v: '1.40', date: '2026-11-06',
+    th: [
+      'แถบเลเยอร์แบบ Altium Designer ใต้ภาพบอร์ด: Top Layer · Bottom Layer · Mechanical 1 · Top / Bottom Overlay · Paste · Solder … คลิกแท็บ = เลเยอร์ปัจจุบัน (วาดบนสุด)',
+      'ปุ่ม LS (Layer Sets): All Layers · Signal Layers · NonSignal Layers · Mechanical Layers · Top / Bottom Side',
+      'Single Layer Mode (Shift+S): ซ่อนเลเยอร์อื่น / เทา / โมโน · ดับเบิลคลิกแท็บ = ดูเลเยอร์เดียว · คลิกขวาแท็บ = เมนูซ่อน/แสดง',
+      'คีย์ลัดแบบ Altium: + / − เลเยอร์ถัดไป/ก่อนหน้า · * สลับ Top/Bottom Layer · L แผงเลเยอร์ · Q สลับ mm / mil',
+      'สีเลเยอร์ตามค่าเริ่มต้นของ Altium (เปลี่ยนเป็นสี KiCad ได้ในตั้งค่า) · ย้ายแถบเลเยอร์ไปด้านบนได้ในตั้งค่า',
+      'พิกัด X / Y แสดงที่ท้ายแถบเลเยอร์',
+    ],
+    en: [
+      'Altium Designer-style layer tabs under the board: Top Layer · Bottom Layer · Mechanical 1 · Top / Bottom Overlay · Paste · Solder … click a tab = current layer (drawn on top)',
+      'LS (Layer Sets) button: All Layers · Signal Layers · NonSignal Layers · Mechanical Layers · Top / Bottom Side',
+      'Single Layer Mode (Shift+S): hide / gray-scale / monochrome other layers · double-click a tab = only that layer · right-click a tab = show / hide menu',
+      'Altium keys: + / − next / previous layer · * toggle Top / Bottom Layer · L layer panel · Q mm / mil',
+      'Altium default layer colours (KiCad colours in Settings) · layer tabs can sit at the top (Settings)',
+      'X / Y readout at the end of the layer tabs',
+    ],
+  },
   {
     v: '1.30', date: '2026-11-06',
     th: [
